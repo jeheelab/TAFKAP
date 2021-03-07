@@ -8,7 +8,7 @@
 
     The new TAFKAP algorithm is described here:
 
-    [LINK TO PREPRINT]
+    https://www.biorxiv.org/content/10.1101/2021.03.04.433946v1
 
     The main input to the code is 'samples'. If you are using the code to
     decode fMRI data, the rows in this matrix will likely correspond to
