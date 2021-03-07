@@ -64,8 +64,8 @@ function [est, unc, liks, hypers] = TAFKAP_Decode(samples, p)
 % 
 %     For TAFKAP:
 %     van Bergen, R.S., & Jehee, J. F. M. (2021). TAFKAP: An improved 
-%     method for probabilistic decoding of cortical activity. [INSERT
-%     BIORXIV ID & DOI HERE]
+%     method for probabilistic decoding of cortical activity. bioRxiv, 
+%     https://doi.org/10.1101/2021.03.04.433946
 %
 %
 %     ----
