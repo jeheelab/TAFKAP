@@ -95,7 +95,7 @@ defaults = { %Default settings for parameters in 'p'
     'precomp_C', 4; %How many sets of channel basis functions to use (swap between at random) - for PRINCE, this value is irrelevant
     'randseed', 1234; %The seed for the (pseudo-)random number generator, which allows the algorithm to reproduce identical results whenever it's run with the same input, despite being stochastic. 
     'prev_C', false; %Regress out contribution of previous stimulus to current-trial voxel responses?        
-    'dec_type', 'TAFKAP'; % 'TAFKAP' or 'PRINCE'            
+    'dec_type', 'PRINCE'; % 'TAFKAP' or 'PRINCE'            
     'DJS_tol', 1e-8; %If the Jensen-Shannon Divergence between the new likelihoods and the previous values is smaller than this number, we stop collecting bootstrap samples (before the maximum of Nboot is reached). If you don't want to allow this early termination, you can set this parameter to a negative value.
     'nchan', 8; %Number of "channels" i.e. orientation basis functions used to fit voxel tuning curves
     'chan_exp', 5; %Exponent to which basis functions are raised (higher = narrower)
@@ -235,7 +235,7 @@ for i = 1:p.Nboot
         end
         [~, min_idx] = min(init_losses);                
         sol = minimize(inits{min_idx}, @fun_negLL_norm, 1e4);
-        prec_mat = invSNC(W(:, 1:pnchan), sol(1:end-2), sol(end-1), sol(end));
+        prec_mat = invSNC(W, sol(1:end-2), sol(end-1), sol(end));
     end    
      
     %% Compute likelihoods on test-trials given model parameter sample
@@ -309,7 +309,7 @@ unc = sqrt(-2*log(abs(pop_vec)))/pi*90; %Uncertainty (defined here as circular S
         rho = params(end);
         
                         
-        [omi, NormConst] = invSNC(W(:,1:p.nchan), tau, sig, rho, p.singletau);
+        [omi, NormConst] = invSNC(W(:,1:p.nchan), tau, sig, rho);
                 
         XXt = noise'*noise;
         
