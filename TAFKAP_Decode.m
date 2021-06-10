@@ -206,7 +206,7 @@ for i = 1:p.Nboot
         fprintf('\nBootstrap iteration: %d', i);     
     
         if p.precomp_C>1 
-            pc_idx = randi(p.precomp_C-1);        
+            pc_idx = randi(p.precomp_C);        
         else
             pc_idx = 1;
         end
