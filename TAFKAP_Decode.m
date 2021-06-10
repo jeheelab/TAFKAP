@@ -235,7 +235,7 @@ for i = 1:p.Nboot
         end
         [~, min_idx] = min(init_losses);                
         sol = minimize(inits{min_idx}, @fun_negLL_norm, 1e4);
-        prec_mat = invSNC(W(:, 1:pnchan), sol(1:end-2), sol(end-1), sol(end));
+        prec_mat = invSNC(W(:, 1:p.nchan), sol(1:end-2), sol(end-1), sol(end));
     end    
      
     %% Compute likelihoods on test-trials given model parameter sample
