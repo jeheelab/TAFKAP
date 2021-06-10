@@ -309,7 +309,7 @@ unc = sqrt(-2*log(abs(pop_vec)))/pi*90; %Uncertainty (defined here as circular S
         rho = params(end);
         
                         
-        [omi, NormConst] = invSNC(W(:,1:p.nchan), tau, sig, rho, p.singletau);
+        [omi, NormConst] = invSNC(W(:,1:p.nchan), tau, sig, rho);
                 
         XXt = noise'*noise;
         
