@@ -64,8 +64,8 @@ function [est, unc, liks, hypers] = TAFKAP_Decode(samples, p)
 % 
 %     For TAFKAP:
 %     van Bergen, R.S., & Jehee, J. F. M. (2021). TAFKAP: An improved 
-%     method for probabilistic decoding of cortical activity. bioRxiv, 
-%     https://doi.org/10.1101/2021.03.04.433946
+%     method for probabilistic decoding of cortical activity. 
+%     https://www.biorxiv.org/content/10.1101/2021.03.04.433946v1
 %
 %
 %     ----
@@ -206,7 +206,7 @@ for i = 1:p.Nboot
         fprintf('\nBootstrap iteration: %d', i);     
     
         if p.precomp_C>1 
-            pc_idx = randi(p.precomp_C-1);        
+            pc_idx = randi(p.precomp_C);        
         else
             pc_idx = 1;
         end
@@ -444,13 +444,14 @@ unc = sqrt(-2*log(abs(pop_vec)))/pi*90; %Uncertainty (defined here as circular S
         fprintf \n
         
         [best_loss, best_idx] = min(losses);
+        best_idx = visited(best_idx);
                         
         % Pattern search
         
         fprintf('\n--PATTERN SEARCH--');        
         step_size = 2^floor(log2(diff(grid_y(1:2)/2))); %Round down to the nearest power of 2 (so we can keep dividing the step size in half)
         while 1            
-            [best_y,best_x] = ind2sub(cellfun(@numel, lambda_range), best_idx);
+            [best_y,best_x] = ind2sub(sz, best_idx);
             new_x = best_x + [-1 1 -1 1]'*step_size;
             new_y = best_y + [-1 -1 1 1]'*step_size;
             del_idx = new_x<=0 | new_x> numel(lambda_range{1}) | new_y<=0 | new_y > numel(lambda_range{2});
@@ -470,6 +471,7 @@ unc = sqrt(-2*log(abs(pop_vec)))/pi*90; %Uncertainty (defined here as circular S
             
             if any(this_losses<best_loss)
                 [best_loss, best_idx] = min(losses);
+                best_idx = visited(best_idx);
             elseif step_size>1
                 step_size = step_size/2;
             else
