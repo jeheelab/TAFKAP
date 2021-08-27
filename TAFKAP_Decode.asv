@@ -153,7 +153,7 @@ if isempty(samples)
     nclasses = 4; %Only relevant when simulating categorical stimuli
     
     
-    [samples, sp] = makeSNCData(struct('nvox', 50, 'ntrials', Ntrials, 'taumean', 0.7, 'ntrials_per_run', Ntesttrials, ...
+    [samples, sp] = makeSNCData(struct('nvox', 500, 'ntrials', Ntrials, 'taumean', 0.7, 'ntrials_per_run', Ntesttrials, ...
         'Wstd', 0.3, 'sigma', 0.3, 'randseed', p.randseed, 'shuffle_oris', 1, 'sim_stim_type', sim_stim_type, 'nclasses', nclasses));    
     
     
@@ -299,7 +299,6 @@ for i = 1:p.Nboot
         [~, min_idx] = min(init_losses);                
         sol = minimize(inits{min_idx}, @fun_negLL_norm, 1e4);
         prec_mat = invSNC(W(:, 1:p.nchan), sol(1:end-2), sol(end-1), sol(end));
-        pc_idx=1
     end    
      
     %% Compute likelihoods on test-trials given model parameter sample
@@ -330,7 +329,7 @@ for i = 1:p.Nboot
         %that quantifies the amount of change is somewhat expensive to
         %compute).
         mDJS = max(fun_DJS(bsxfun(@rdivide, old_cnt, sum(old_cnt,2)), bsxfun(@rdivide, cnt, sum(cnt,2))));                
-        fprintf('\nMax. change in likelihoods (JS-divergence) in last 100 iterations: %5.4g\n', mDJS);
+        fprintf('\nChange in likelihoods (JS-divergence) in last 100 iterations: %5.4g\n', mDJS);
         if mDJS < p.DJS_tol, break; end            
     end
     

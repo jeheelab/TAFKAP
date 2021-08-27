@@ -14,9 +14,11 @@ def = {
     'taumean', 0.7;
     'taustd', 0.035;
     'nchan', 8;
+    'nclasses', 4;
     'ntrials', 220;
     'ntrials_per_run', 20;
     'sigma_arb', 0.3;    
+    'sim_stim_type', 'circular'; 
     };
 
 if nargin < 1, p = struct; end
@@ -34,17 +36,32 @@ nruns = p.ntrials/p.ntrials_per_run;
 assert(round(nruns)==nruns, 'Number of trials per run must divide evenly into total number of trials');
 run_idx = sort(repmat((1:nruns)', p.ntrials_per_run, 1));
 
-%This code generates orientations by (roughly) the same pseudorandom 
-%procedure used in our fMRI experiments, ensuring that each run uniformly
-%samples orientation space without any biases. 
-base_ori = linspace(0, 2*pi, p.ntrials_per_run+1)'; base_ori(end)=[];
-run_offsets = rand(1,nruns)*diff(base_ori(1:2));
-ori = bsxfun(@plus, base_ori, run_offsets);
-for j = 1:size(ori,2)
-    [~, idx] = sort(rand(size(ori,1),1));
-    ori(:,j) = ori(idx,j);
+switch p.sim_stim_type
+    case 'circular'
+        %This code generates orientations by (roughly) the same pseudorandom 
+        %procedure used in our fMRI experiments, ensuring that each run uniformly
+        %samples orientation space without any biases. 
+        base_ori = linspace(0, 2*pi, p.ntrials_per_run+1)'; base_ori(end)=[];
+        run_offsets = rand(1,nruns)*diff(base_ori(1:2));
+        ori = bsxfun(@plus, base_ori, run_offsets);
+        for j = 1:size(ori,2)
+            [~, idx] = sort(rand(size(ori,1),1));
+            ori(:,j) = ori(idx,j);
+        end
+        ori = ori(:);
+        stimval = ori;
+        classes = [];
+    case 'categorical'
+        %This code generates balanced runs of categorical stimuli
+        p.nchan = p.nclasses;
+        assert(mod(p.ntrials_per_run, p.nclasses)==0, 'To simulate categorical stimulus labels, number of classes must divide neatly into the number of trials per run.');                
+        tmp = repmat((1:p.nclasses)', p.ntrials_per_run/p.nclasses, 1);
+        [~, orders] = arrayfun(@(x) sort(rand(x,1)), ones(1,nruns)*p.ntrials_per_run, 'UniformOutput', false);
+        orders = horzcat(orders{:});
+        stimval = tmp(orders(:)); 
+        classes = 1:p.nclasses;
 end
-ori = ori(:);
+
 
 %Simulate generative model parameters:
 W = randn(p.nvox,p.nchan)*p.Wstd;                       
@@ -59,13 +76,13 @@ cov_sim = (1-rho_sim)*diag(tau_sim.^2) + rho_sim*(tau_sim*tau_sim') + sig_sim^2*
 %Simulate data:
 Q = chol(cov_sim, 'lower'); %Mixing matrix for generating correlated noise (this transforms standard IID Normal noise to multivariate Normal noise with covariance structure cov_sim)
 noise = (Q*randn(p.ntrials,p.nvox)')'; %(Note that the sample covariance of this noise will not exactly equal cov_sim. cov_sim is the covariance matrix for the population from which the sample is drawn.)          
-tun = fun_basis(ori)*W'; %Tuning curves sampled at the simulated stimulus orientations
+tun = fun_basis(stimval, [], [], classes)*W'; %Tuning curves sampled at the simulated stimulus orientations
 rsp = tun + noise; %Simulated voxel responses 
 
 if nargout > 1
     simpar = p;
     simpar.W = W;
-    simpar.ori = ori;
+    simpar.stimval = stimval;
     simpar.tau = tau_sim;
     simpar.rho = rho_sim;
     simpar.sigma = sig_sim;        
