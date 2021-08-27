@@ -88,65 +88,91 @@ def TAFKAP_decode(samples=None, p={}):
 
 
 
-    def estimate_W(samples=None, C=None, do_boot=False, test_samples=None, test_C=None):
-        N = C.shape[0]
-        if do_boot:
-            idx = torch.randint(N,(N,))
+    def estimate_W(samples=None, C=None, do_boot=50, test_samples=None, test_C=None):
+        N = C.shape[0]        
+        if do_boot>0:
+            #Generate multiple bootstraps at once in a batch
+            idx = torch.randint(N, (N,do_boot))
         else:
-            idx = torch.arange(0,N)
+            idx = torch.arange(0,N).unsqueeze(-1)
+
+        C_boot = C[idx,:].transpose(0,1)
+        samples_boot = samples[idx,:].transpose(0,1)
+
 
         if p['prev_C']:
-            sol = torch.linalg.lstsq(torch.cat((C[idx,p['nchan']:], torch.ones(N,1)), 1), samples[idx,:])
-            W_prev = sol[0].t()
-            W_prev = W_prev[:,0:-1]
-            samples -= torch.mm(C[:, p['nchan']:], W_prev.t())
-            C = C[:, 0:p['nchan']]
+            sol = torch.linalg.lstsq(torch.cat((C_boot[:,:,p['nchan']:], torch.ones(do_boot, N,1)), 2), samples_boot)
+            W_prev = sol[0].transpose(1,2)
+            W_prev = W_prev[:,:,:-1]
+            samples -= C_boot[:,:,p['nchan']:] @ W_prev.transpose(1,2)
+            C_boot = C_boot[:, 0:p['nchan']]
+
+            # sol = torch.linalg.lstsq(torch.cat((C[idx,p['nchan']:], torch.ones(N,1)), 1), samples[idx,:])
+            # W_prev = sol[0].t()
+            # W_prev = W_prev[:,0:-1]
+            # samples -= torch.mm(C[:, p['nchan']:], W_prev.t())
+            # C = C[:, 0:p['nchan']]
         else:
             W_prev = torch.empty(0)
 
-        sol = torch.linalg.lstsq(C[idx,:], samples[idx,:])
-        W_curr = sol[0].t()        
-        W = torch.cat((W_curr, W_prev), 1)
-        
-        noise = samples[idx,:] - torch.mm(C[idx,:], W_curr.t())
+        sol = torch.linalg.lstsq(C_boot, samples_boot)
+        W_curr = sol[0].transpose(1,2)
+        W = torch.cat((W_curr, W_prev), -1)
+
+        noise = samples_boot - torch.matmul(C_boot, W_curr.transpose(1,2))        
         if not test_samples==None:
-            test_noise = test_samples - torch.mm(test_C, W.t())
+            test_noise = test_samples.unsqueeze(0) - torch.matmul(test_C.unsqueeze(0), W.transpose(1,2))
+            test_noise = test_noise.squeeze()
         else:
             test_noise = None
-
+        
+        W, noise = W.squeeze(), noise.squeeze()
         return W, noise, test_noise
 
     def estimate_cov(X,lambda_var,lamb,W):
-        n,pp = X.shape[:]
-        W = W[:,0:p['nchan']]     
+        n,pp = X.shape[-2:]        
+        if W.ndim==2: 
+            #Insert singleton batch dimension 
+            W=W.unsqueeze(0)
+            X=X.unsqueeze(0)
+        W = W[:,:,0:p['nchan']]    
+        batch_size = W.shape[0] 
         
-        vars = (X**2).mean(0)
-        medVar = vars.median()
+        vars = (X**2).mean(-2,True)
+        medVar = vars.median(-1,True).values
 
-        t = torch.ones((pp,)*2).tril(-1)==1        
-        samp_cov = torch.mm(X.t(),X)/n
+        t = (torch.ones((pp,)*2).tril(-1)==1).expand(batch_size, pp, pp)
+        samp_cov = torch.matmul(X.transpose(1,2),X)/n
         
-        WWt = torch.mm(W,W.t())
-        rm = torch.cat((WWt[t].unsqueeze(-1), torch.ones(t.sum(),1)),1)
-        sol = torch.linalg.lstsq(rm, samp_cov[t].unsqueeze(-1))
+        WWt = torch.matmul(W,W.transpose(1,2))        
+        rm = torch.cat((WWt[t].view(batch_size, -1,1), torch.ones(batch_size, t[0,:,:].sum(), 1)),-1)
+        sol = torch.linalg.lstsq(rm, samp_cov[t].view(batch_size, -1, 1))
+
+        # WWt = torch.mm(W,W.t())
+        # rm = torch.cat((WWt[t].unsqueeze(-1), torch.ones(t.sum(),1)),1)
+        # sol = torch.linalg.lstsq(rm, samp_cov[t].unsqueeze(-1))
+
         coeff = sol[0]
 
         target_diag = lambda_var*medVar + (1-lambda_var)*vars
-        target = coeff[0]*WWt + torch.ones((pp,)*2)*coeff[1]
-        target[torch.eye(pp)==1]=target_diag
+        target = coeff[:,(0,),:]*WWt + torch.ones((batch_size, *(pp,)*2))*coeff[:, (1,), :]
+        # target[torch.eye(pp)==1]=target_diag
+        target[torch.eye(pp).expand((batch_size, *(pp,)*2))==1]=target_diag.flatten()
                 
         C = (1-lamb)*samp_cov + lamb*target
-        try:
-            torch.linalg.cholesky(C) #Cholesky decomp seems to be faster than eigendecomp, so assuming we mostly don't fail this test, it's faster this way
-        except:
-            eigvals, eigvecs = torch.linalg.eigh(C)
-            min_eigval = eigvals.min()
-            print('WARNING: Non-positive definite covariance matrix detected. Lowest eigenvalue: ' + str(min_eigval.item()) + '. Finding a nearby PD matrix by thresholding eigenvalues at 1e-10.')        
-            eigvals = eigvals.clamp(1e-10)
-            eigvals = torch.diag(eigvals)
-            C = torch.mm(torch.mm(eigvecs,eigvals), eigvecs.t())
+        for i in range(C.shape[0]):
+            #Not sure how best to batch this as the PD-test should only be done on each matrix separately
+            try:
+                torch.linalg.cholesky(C[i,:,:]) #Cholesky decomp seems to be faster than eigendecomp, so assuming we mostly don't fail this test, it's faster this way
+            except:
+                eigvals, eigvecs = torch.linalg.eigh(C[i,:,:])
+                min_eigval = eigvals.min()
+                print('WARNING: Non-positive definite covariance matrix detected. Lowest eigenvalue: ' + str(min_eigval.item()) + '. Finding a nearby PD matrix by thresholding eigenvalues at 1e-10.')        
+                eigvals = eigvals.clamp(1e-10)
+                eigvals = torch.diag(eigvals)
+                C[i,:,:] = torch.mm(torch.mm(eigvecs,eigvals), eigvecs.t())
 
-        return C
+        return C.squeeze()
 
     def find_lambda(cvInd, lambda_range):        
 
@@ -246,9 +272,7 @@ def TAFKAP_decode(samples=None, p={}):
 
 
         
-    torch.set_default_dtype(torch.float64)
-    # torch.set_default_tensor_type(torch.cuda.DoubleTensor)
-
+    
 
 
     defaults = { #Default settings for parameters in 'p'    
@@ -259,11 +283,20 @@ def TAFKAP_decode(samples=None, p={}):
     'dec_type': 'TAFKAP', # 'TAFKAP' or 'PRINCE'            
     'stim_type': 'circular', #'circular' or 'categorical'. Also controls what type of data is simulated, in case no data is provided.        
     'DJS_tol': 1e-8, #If the Jensen-Shannon Divergence between the new likelihoods and the previous values is smaller than this number, we stop collecting bootstrap samples (before the maximum of Nboot is reached). If you don't want to allow this early termination, you can set this parameter to a negative value.
+    # When boot_batch_size > 1, the DJS-tolerance gets multiplied by the batch size, since changes will tend to be proportionally larger with larger batches
     'nchan': 8, #Number of "channels" i.e. orientation basis functions used to fit voxel tuning curves
-    'chan_exp': 5 #Exponent to which basis functions are raised (higher = narrower)
+    'chan_exp': 5, #Exponent to which basis functions are raised (higher = narrower)
+    'use_gpu': True, #Make use of CUDA-enabled GPU to accelerate computation?
+    'boot_batch_size': 20 #Batch size for bootstraps. Instead of doing 1 bootstrap at a time, we'll do this many at once. This can further speed up computation when using GPU.
     }
     
     p = setdefaults(defaults, p)   
+    
+    if p['use_gpu']:
+        torch.set_default_tensor_type(torch.cuda.DoubleTensor)
+    else:
+        torch.set_default_dtype(torch.float64)
+        
     
     if samples == None:
         print('--SIMULATING DATA--')
@@ -308,7 +341,7 @@ def TAFKAP_decode(samples=None, p={}):
     train_stimval = p['stimval'][p['train_trials']]
     if p['stim_type']=='circular': train_stimval /= (90/pi)
 
-    
+    DJS_interval = ceil(100/p['boot_batch_size'])*p['boot_batch_size']
     
     del samples
 
@@ -381,7 +414,7 @@ def TAFKAP_decode(samples=None, p={}):
 
     # Bootstrap loop (run only once for PRINCE)
 
-    for i in range(p['Nboot']):
+    for i in range(0, p['Nboot'], p['boot_batch_size']):
         ## Bootstrap sample of W & covariance
         # Resample train trials with replacement and estimate W and the
         # covariance matrix on this resampled training data. For PRINCE, don't
@@ -396,7 +429,7 @@ def TAFKAP_decode(samples=None, p={}):
             else:
                 pc_idx = 0
                 
-            W, noise, _ = estimate_W(train_samples, Ctrain[:,:,pc_idx], True)
+            W, noise, _ = estimate_W(train_samples, Ctrain[:,:,pc_idx], do_boot=p['boot_batch_size'])
             cov_est = estimate_cov(noise, hypers[0], hypers[1], W)
             
             prec_mat = chol_invld(cov_est)
@@ -422,26 +455,29 @@ def TAFKAP_decode(samples=None, p={}):
             pc_idx=0
 
         # Compute likelihoods on test-trials given model parameter sample
+        if W.ndim==2:
+            W = W.unsqueeze(0)
+            prec_mat = prec_mat.unsqueeze(0)        
+        res = test_samples.unsqueeze(0) #Dimensions will be [bootstrap_batch x test_batch x ...]
+        pred = C_precomp[:,:,pc_idx] @ W[:, :, 0:p['nchan']].transpose(-2,-1)
 
-        pred = C_precomp[:,:,pc_idx] @ W[:, 0:p['nchan']].t()
-
-        if (i+1)%100==0: old_cnt = cnt.clone()
-
-        # The following lines are a bit different (and more elegant/efficient) in Python+Pytorch than in Matlab
-        res = test_samples
-        if p['prev_C']:
-            res -= torch.matmul(Ctest_prev[:,:,pc_idx], W[:, p['nchan']:].t().unsqueeze(0)).squeeze()
+        if all((p['boot_batch_size']==1, (i+1)%DJS_interval==0)) or all((i>0, p['boot_batch_size']>1, (i%DJS_interval)==0)): old_cnt = cnt.clone()
         
-        res = res.unsqueeze(1) - pred.unsqueeze(0)
-        ps = -0.5*((res @ prec_mat) * res).sum(-1)
-        ps = (ps-ps.amax(1,True)).softmax(1)
+        # The following lines are a bit different (and more elegant/efficient) in Python+Pytorch than in Matlab
+        
+        if p['prev_C']:
+            res -= torch.matmul(Ctest_prev[:,:,pc_idx], W[:, :, p['nchan']:].t().unsqueeze(0)).squeeze()
+        
+        res = res.unsqueeze(2) - pred.unsqueeze(1)
+        ps = -0.5*((res @ prec_mat.unsqueeze(1) ) * res).sum(-1)
+        ps = (ps-ps.amax(-1,True)).softmax(-1)
 
-        cnt += ps
+        cnt += ps.sum(0)
 
-        if (i+1)%100==0:
-            mDJS = fun_DJS(old_cnt/old_cnt.sum(1,True), cnt/cnt.sum(1,True)).amax()
-            print('Max. change in likelihoods (JS-divergence) in last 100 iterations: {:g}'.format(mDJS))
-            if mDJS < p['DJS_tol']: break
+        if all((p['boot_batch_size']==1, (i+1)%DJS_interval==0)) or all((i>0, p['boot_batch_size']>1, (i%DJS_interval)==0)):
+            mDJS = fun_DJS(old_cnt/old_cnt.sum(-1,True), cnt/cnt.sum(-1,True)).amax()
+            print('Max. change in likelihoods (JS-divergence) since previous batch: {:g}'.format(mDJS))
+            if mDJS < p['DJS_tol']*p['boot_batch_size']: break
 
     liks = cnt/cnt.sum(1,True) #(Normalized) likelihoods (= posteriors, assuming a flat prior)
     if p['stim_type'] == 'circular':
@@ -460,14 +496,16 @@ def TAFKAP_decode(samples=None, p={}):
 
 
 def fun_DKL(P,Q):
-    # Computes JS-divergence between corresponding rows in P and Q
+    # Computes KL-divergence from each row in Q to each corresponding row in P    
+    # For >2-dimensional tensors, 'rows' are the final dimension (leading dims are interpreted as batch dimensions)
     z = P==0
     out = P*(P.log()-Q.log())
     out[z]=0
-    return out.sum(1)
+    return out.sum(-1)
 
 def fun_DJS(P,Q):
-    # Computes KL-divergence from each row in Q to each corresponding row in P
+    # Computes JS-divergence between corresponding rows in P and Q
+    # For >2-dimensional tensors, 'rows' are the final dimension (leading dims are interpreted as batch dimensions)
     M = P/2+Q/2
     out = fun_DKL(P,M)/2 + fun_DKL(Q,M)/2
     return out
@@ -579,7 +617,7 @@ def chol_invld(X, get_ld=False):
         A = torch.linalg.cholesky(X)
         Xi = torch.cholesky_inverse(A)
         if get_ld: 
-            ld = 2*torch.diag(A).log().sum()
+            ld = 2*torch.diagonal(A,0,-2,-1).log().sum(-1)
             return Xi, ld
         else:
             return Xi
