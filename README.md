@@ -67,3 +67,9 @@
     van Bergen, R.S., & Jehee, J. F. M. (2021). TAFKAP: An improved 
     method for probabilistic decoding of cortical activity. 
     https://www.biorxiv.org/content/10.1101/2021.03.04.433946v1
+    
+    PYTHON CODE:
+    This repository now also includes a Python port of our original 
+    Matlab code. Please note that this version has not undergone as
+    much testing as the Matlab version, as we have to date only used
+    the latter in our own analyses. 
