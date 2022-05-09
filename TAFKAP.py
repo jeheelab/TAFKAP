@@ -147,12 +147,9 @@ def TAFKAP_decode(samples=None, p={}):
         WWt = torch.matmul(W,W.transpose(1,2))        
         rm = torch.cat((WWt[t].view(batch_size, -1,1), torch.ones(batch_size, t[0,:,:].sum(), 1)),-1)
         sol = torch.linalg.lstsq(rm, samp_cov[t].view(batch_size, -1, 1))
-
-        # WWt = torch.mm(W,W.t())
-        # rm = torch.cat((WWt[t].unsqueeze(-1), torch.ones(t.sum(),1)),1)
-        # sol = torch.linalg.lstsq(rm, samp_cov[t].unsqueeze(-1))
-
         coeff = sol[0]
+
+        # coeff = torch.matmul(samp_cov[t].view(batch_size, -1, 1).transpose(-2,-1), rm.pinv().transpose(-2,1))
 
         target_diag = lambda_var*medVar + (1-lambda_var)*vars
         target = coeff[:,(0,),:]*WWt + torch.ones((batch_size, *(pp,)*2))*coeff[:, (1,), :]
@@ -231,8 +228,7 @@ def TAFKAP_decode(samples=None, p={}):
         best_idx = visited[best_idx]
 
         best_lambda_gridsearch = (grid_l1[best_idx], grid_l2[best_idx])
-        print('Best lambda setting from grid search: lambda_var = {:3.2f}, lambda = {:3.2f}, loss = {:g}'.format(*best_lambda_gridsearch, best_loss.item()))
-        print(best_idx)
+        print('Best lambda setting from grid search: lambda_var = {:3.2f}, lambda = {:3.2f}, loss = {:g}'.format(*best_lambda_gridsearch, best_loss.item()))        
                 
         # Pattern search
         print('--PATTERN SEARCH--')
@@ -287,15 +283,22 @@ def TAFKAP_decode(samples=None, p={}):
     'nchan': 8, #Number of "channels" i.e. orientation basis functions used to fit voxel tuning curves
     'chan_exp': 5, #Exponent to which basis functions are raised (higher = narrower)
     'use_gpu': True, #Make use of CUDA-enabled GPU to accelerate computation?
-    'boot_batch_size': 20 #Batch size for bootstraps. Instead of doing 1 bootstrap at a time, we'll do this many at once. This can further speed up computation when using GPU.
+    'boot_batch_size': 20, #Batch size for bootstraps. Instead of doing 1 bootstrap at a time, we'll do this many at once. This can further speed up computation when using GPU.
+    'precision': 'single' #Tensor precision ('double' or 'single')
     }
     
     p = setdefaults(defaults, p)   
     
     if p['use_gpu']:
-        torch.set_default_tensor_type(torch.cuda.DoubleTensor)
+        if p['precision']=='double':
+            torch.set_default_tensor_type(torch.cuda.DoubleTensor)
+        elif p['precision']=='single':
+            torch.set_default_tensor_type(torch.cuda.FloatTensor)
     else:
-        torch.set_default_dtype(torch.float64)
+        if p['precision']=='double':
+            torch.set_default_dtype(torch.float64)
+        elif p['precision']=='single':
+            torch.set_default_dtype(torch.float32)
         
     
     if samples == None:
@@ -480,8 +483,11 @@ def TAFKAP_decode(samples=None, p={}):
             if mDJS < p['DJS_tol']*p['boot_batch_size']: break
 
     liks = cnt/cnt.sum(1,True) #(Normalized) likelihoods (= posteriors, assuming a flat prior)
-    if p['stim_type'] == 'circular':
-        pop_vec = liks.type(torch.complex128) @ (1j*s_precomp).exp()
+    if p['stim_type'] == 'circular':        
+        if p['precision']=='double':
+            pop_vec = liks.type(torch.complex128) @ (1j*s_precomp).exp()
+        elif p['precision']=='single':
+            pop_vec = liks.type(torch.complex64) @ (1j*s_precomp).exp()
         est = (pop_vec.angle()/pi*90) % 180 #Stimulus estimate (likelihood/posterior means)
         unc = (-2*pop_vec.abs().log()).sqrt()/pi*90 #Uncertainty (defined here as circular SDs of likelihoods/posteriors)
     elif p['stim_type'] == 'categorical':
