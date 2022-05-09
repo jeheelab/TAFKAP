@@ -197,7 +197,7 @@ clear samples
 switch p.stim_type
     case 'circular'
         s_precomp = linspace(0, 2*pi, 101)'; s_precomp(end) = [];        
-        ph = linspace(0, 2*pi/p.nchan, p.precomp_C+1); ph(end) = []
+        ph = linspace(0, 2*pi/p.nchan, p.precomp_C+1); ph(end) = [];
         classes = [];
     case 'categorical'         
         classes = unique(p.stimval);
@@ -299,7 +299,7 @@ for i = 1:p.Nboot
         [~, min_idx] = min(init_losses);                
         sol = minimize(inits{min_idx}, @fun_negLL_norm, 1e4);
         prec_mat = invSNC(W(:, 1:p.nchan), sol(1:end-2), sol(end-1), sol(end));
-        pc_idx=1
+        pc_idx=1;
     end    
      
     %% Compute likelihoods on test-trials given model parameter sample

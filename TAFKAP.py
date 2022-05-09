@@ -131,6 +131,8 @@ def TAFKAP_decode(samples=None, p={}):
         sol = torch.linalg.lstsq(rm, samp_cov[t].unsqueeze(-1))
         coeff = sol[0]
 
+        # coeff = torch.matmul(samp_cov[t].view(batch_size, -1, 1).transpose(-2,-1), rm.pinv().transpose(-2,1))
+
         target_diag = lambda_var*medVar + (1-lambda_var)*vars
         target = coeff[0]*WWt + torch.ones((pp,)*2)*coeff[1]
         target[torch.eye(pp)==1]=target_diag
@@ -205,8 +207,7 @@ def TAFKAP_decode(samples=None, p={}):
         best_idx = visited[best_idx]
 
         best_lambda_gridsearch = (grid_l1[best_idx], grid_l2[best_idx])
-        print('Best lambda setting from grid search: lambda_var = {:3.2f}, lambda = {:3.2f}, loss = {:g}'.format(*best_lambda_gridsearch, best_loss.item()))
-        print(best_idx)
+        print('Best lambda setting from grid search: lambda_var = {:3.2f}, lambda = {:3.2f}, loss = {:g}'.format(*best_lambda_gridsearch, best_loss.item()))        
                 
         # Pattern search
         print('--PATTERN SEARCH--')
@@ -444,8 +445,11 @@ def TAFKAP_decode(samples=None, p={}):
             if mDJS < p['DJS_tol']: break
 
     liks = cnt/cnt.sum(1,True) #(Normalized) likelihoods (= posteriors, assuming a flat prior)
-    if p['stim_type'] == 'circular':
-        pop_vec = liks.type(torch.complex128) @ (1j*s_precomp).exp()
+    if p['stim_type'] == 'circular':        
+        if p['precision']=='double':
+            pop_vec = liks.type(torch.complex128) @ (1j*s_precomp).exp()
+        elif p['precision']=='single':
+            pop_vec = liks.type(torch.complex64) @ (1j*s_precomp).exp()
         est = (pop_vec.angle()/pi*90) % 180 #Stimulus estimate (likelihood/posterior means)
         unc = (-2*pop_vec.abs().log()).sqrt()/pi*90 #Uncertainty (defined here as circular SDs of likelihoods/posteriors)
     elif p['stim_type'] == 'categorical':
