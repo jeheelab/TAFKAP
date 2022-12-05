@@ -261,7 +261,8 @@ def TAFKAP_decode(samples=None, p={}):
     'stim_type': 'circular', #'circular' or 'categorical'. Also controls what type of data is simulated, in case no data is provided.        
     'DJS_tol': 1e-8, #If the Jensen-Shannon Divergence between the new likelihoods and the previous values is smaller than this number, we stop collecting bootstrap samples (before the maximum of Nboot is reached). If you don't want to allow this early termination, you can set this parameter to a negative value.
     'nchan': 8, #Number of "channels" i.e. orientation basis functions used to fit voxel tuning curves
-    'chan_exp': 5 #Exponent to which basis functions are raised (higher = narrower)
+    'chan_exp': 5, #Exponent to which basis functions are raised (higher = narrower)
+    'precision': 'double'
     }
     
     p = setdefaults(defaults, p)   
