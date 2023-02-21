@@ -261,17 +261,18 @@ def TAFKAP_decode(samples=None, p={}):
     'stim_type': 'circular', #'circular' or 'categorical'. Also controls what type of data is simulated, in case no data is provided.        
     'DJS_tol': 1e-8, #If the Jensen-Shannon Divergence between the new likelihoods and the previous values is smaller than this number, we stop collecting bootstrap samples (before the maximum of Nboot is reached). If you don't want to allow this early termination, you can set this parameter to a negative value.
     'nchan': 8, #Number of "channels" i.e. orientation basis functions used to fit voxel tuning curves
-    'chan_exp': 5 #Exponent to which basis functions are raised (higher = narrower)
+    'chan_exp': 5, #Exponent to which basis functions are raised (higher = narrower)
+    'precision': 'double'
     }
     
     p = setdefaults(defaults, p)   
     
-    if samples == None:
+    if samples is None:
         print('--SIMULATING DATA--')
         Ntraintrials = 200
         Ntesttrials = 20
         Ntrials = Ntraintrials+Ntesttrials
-        nclasses = 4; #Only relevant when simulating categorical stimuli
+        nclasses = 4 #Only relevant when simulating categorical stimuli
         
         samples, sp = makeSNCData({
             'nvox': 500, 
@@ -292,7 +293,7 @@ def TAFKAP_decode(samples=None, p={}):
 
     p['stimval'] = sp['stimval']
     if p['stim_type']=='circular': p['stimval'] /= (pi/90)
-    p['runNs'] = sp['run_idx'];    
+    p['runNs'] = sp['run_idx']    
 
     assert 'stimval' in p and 'train_trials' in p and 'test_trials' in p and 'runNs' in p, 'Must specify stimval, train_trials, test_trials and runNs'
 
