@@ -267,12 +267,12 @@ def TAFKAP_decode(samples=None, p={}):
     
     p = setdefaults(defaults, p)   
     
-    if samples == None:
+    if samples is None:
         print('--SIMULATING DATA--')
         Ntraintrials = 200
         Ntesttrials = 20
         Ntrials = Ntraintrials+Ntesttrials
-        nclasses = 4; #Only relevant when simulating categorical stimuli
+        nclasses = 4 #Only relevant when simulating categorical stimuli
         
         samples, sp = makeSNCData({
             'nvox': 500, 
@@ -293,7 +293,7 @@ def TAFKAP_decode(samples=None, p={}):
 
     p['stimval'] = sp['stimval']
     if p['stim_type']=='circular': p['stimval'] /= (pi/90)
-    p['runNs'] = sp['run_idx'];    
+    p['runNs'] = sp['run_idx']    
 
     assert 'stimval' in p and 'train_trials' in p and 'test_trials' in p and 'runNs' in p, 'Must specify stimval, train_trials, test_trials and runNs'
 
