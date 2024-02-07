@@ -145,6 +145,8 @@ function [est, unc, liks, hypers] = TAFKAP_Decode(samples, p)
 if nargin < 2, p = []; end
 if nargin < 1, samples = []; end
 
+addpath invChol\
+
 defaults = { %Default settings for parameters in 'p'    
     'Nboot', 5e4; %Maximum number of bootstrap iterations 
     'precomp_C', 4; %How many sets of channel basis functions to use (swap between at random) - for PRINCE, and for categorical stimulus values, this value is irrelevant
