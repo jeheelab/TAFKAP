@@ -105,6 +105,22 @@ function [est, unc, liks, hypers] = TAFKAP_Decode(samples, p)
 %     van Bergen, R.S., & Jehee, J. F. M. (2021). TAFKAP: An improved 
 %     method for probabilistic decoding of cortical activity. 
 %     https://www.biorxiv.org/content/10.1101/2021.03.04.433946v2
+% 
+%     invChol_mex:
+%     The Matlab implementation of TAFKAP uses invChol_mex for fast inversion
+%     of symmetric, positive-definite matrices (see https://www.mathworks.com/
+%     matlabcentral/fileexchange/34511-fast-and-accurate-symmetric-positive-
+%     definite-matrix-inverse-using-cholesky-decomposition). This relies on
+%     Matlab's ability to run pre-compiled C-code, as though it were a Matlab
+%     function (see https://www.mathworks.com/help/matlab/ref/mex.html). TAFKAP 
+%     includes a pre-compiled MEX files that should work on most Linux and 
+%     Windows systems. If this throws an error, TAFKAP will default to using 
+%     Matlab's built-in "inv" function, and issue a warning. If you encounter 
+%     this and wish to benefit from invChol_mex's faster computation, try to run
+%     run_to_compile_and_test.m from within the invChol folder. If this fails with
+%     the message that you do not have a compiler installed, please try installing
+%     the MinGW compiler (see https://www.mathworks.com/matlabcentral/answers/
+%     311290-faq-how-do-i-install-the-mingw-compiler) and try again.
 %
 %
 %     ----
@@ -143,6 +159,23 @@ defaults = { %Default settings for parameters in 'p'
 p = setdefaults(defaults, p);
 
 
+invChol_is_available = true;
+if strcmpi(p.dec_type, 'TAFKAP')
+    try 
+        invChol_mex(eye(2));
+    catch ME
+        if strcmpi(ME.identifier, 'MATLAB:UndefinedFunction'), invChol_is_available = false; end
+    end
+    if invChol_is_available
+        fprintf('\nVerified that invChol_mex is available.\n');
+        inv_function = @invChol_mex;
+    else
+        warning('\nWARNING: invChol_mex is not available, likely because no suitable compiled MEX file was found. \nTAFKAP will default to using MATLAB''s built-in "inv" function, but this is slower. \nPlease see Readme.MD for more information.\n');
+        inv_function = @inv;
+    end        
+end
+
+
 if isempty(samples)
     % If no data was supplied, let's simulate some data to decode
     fprintf('\n--SIMULATING DATA--\n')
@@ -153,7 +186,7 @@ if isempty(samples)
     nclasses = 4; %Only relevant when simulating categorical stimuli
     
     
-    [samples, sp] = makeSNCData(struct('nvox', 50, 'ntrials', Ntrials, 'taumean', 0.7, 'ntrials_per_run', Ntesttrials, ...
+    [samples, sp] = makeSNCData(struct('nvox', 200, 'ntrials', Ntrials, 'taumean', 0.7, 'ntrials_per_run', Ntesttrials, ...
         'Wstd', 0.3, 'sigma', 0.3, 'randseed', p.randseed, 'shuffle_oris', 1, 'sim_stim_type', sim_stim_type, 'nclasses', nclasses));    
     
     
@@ -172,6 +205,7 @@ catch
     rs = RandStream('mt19937ar', 'Seed', p.randseed); 
     RandStream.setDefaultStream(rs);    
 end
+
 
 train_samples = samples(p.train_trials,:);
 test_samples = samples(p.test_trials,:);
@@ -278,7 +312,7 @@ for i = 1:p.Nboot
         
         cov_est = estimate_cov(noise,hypers(1),hypers(2), W);        
         try
-            prec_mat = invChol_mex(cov_est);
+            prec_mat = inv_function(cov_est);
         catch ME
             if strcmp(ME.identifier, 'MATLAB:invChol_mex:dpotrf:notposdef')                     
                 fprintf('\nWARNING: Covariance estimate wasn''t positive definite. Trying again with another bootstrap sample.\n');
@@ -420,7 +454,7 @@ end
     function loss = fun_norm_loss(c_est, c0)
         
         try
-            loss = (logdet(c_est, 'chol') + sum(sum(invChol_mex(c_est).*c0)))/size(c0,2);
+            loss = (logdet(c_est, 'chol') + sum(sum(inv_function(c_est).*c0)))/size(c0,2);
         catch ME
             if any(strcmpi(ME.identifier, {'MATLAB:posdef', 'MATLAB:invChol_mex:dpotrf:notposdef'}))
                 loss = (logdet(c_est) + trace(c_est\c0))/size(c0,2);

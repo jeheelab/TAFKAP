@@ -22,36 +22,31 @@ else
     % these circumstances, we can compute the inverse of the full matrix by
     % first computing the inverse of the diagonal matrix (which is easy)
     % and then "updating" this inverse by the contributions of the low-rank
-    % components.
+    % components. 
     %
-    % Our two low-rank components are (1-rho)*tau*tau' and sigma²*W*W'. The 
-    % former is rank-1, and so the inverse of the diagonal plus this rank-1 
-    % component can be computed using the Sherman-Morrison formula. The 
-    % latter has rank equal to the number of columns of W. To bring this 
-    % second update into the inverse, we apply the Woodbury identity (of 
-    % which Sherman-Morrison is a special case).  
+    % Older versions did this in two steps: first using the
+    % Sherman-Morrison identity and then updating the resulting inverse by
+    % the Woodbury identity, but it turns out to be faster to do it all ina
+    % single step via the Woodbury.
     %
     % More information:
     % https://www.math.uwaterloo.ca/~hwolkowi/matrixcookbook.pdf 
     % https://en.wikipedia.org/wiki/Woodbury_matrix_identity
-    % https://en.wikipedia.org/wiki/Sherman%E2%80%93Morrison_formula
-    
-    
-    alpha = 1/(1-rho);
-    Fi = alpha*sparse(diag(tau.^-2));            
-    ti = 1./tau;
-    Di = Fi - (rho*alpha^2*(ti*ti'))/(1+rho*nvox*alpha); %Sherman-Morrison
 
-    DiW = Di*W;
-    WtDiW = W'*DiW;
-    omi = Di - DiW/(sig^-2*eye(size(W,2))+WtDiW)*DiW'; %Woodbury
+    alpha = 1/(1-rho);
+    Ai = alpha*(diag(tau.^-2));            
+    Ci = diag(1./vertcat(rho, ones(size(W,2),1)*sig^2));    
+    U = [tau, W]; 
+    AiU = Ai*U;
+    UtAiU = U'*AiU;
+    omi = Ai - AiU/(Ci + UtAiU)*AiU';
 
     if nargout > 1
         % We can apply similar tricks to the log determinant. In this case,
         % this is based on the Matrix Determinant Lemma.
         % (https://en.wikipedia.org/wiki/Matrix_determinant_lemma)
         try
-            ld = logdet(sparse(eye(size(W,2)))+sig^2*WtDiW, 'chol') + log(1 + rho*nvox*alpha) + nvox*log(1-rho) + 2*sum(log(tau));  
+            ld = logdet(Ci + UtAiU, 'chol') + log(rho) + size(W,2)*2*log(sig) + nvox*log(1-rho) + 2*sum(log(tau));    
         catch ME        
             if strcmpi(ME.identifier, 'MATLAB:posdef')
                 % If the cholesky decomposition-based version of logdet 
@@ -61,7 +56,7 @@ else
                 % this message, you shouldn't trust the result. This may be 
                 % due to a bad initialization of the noise parameters.
                 warning('Cholesky decomposition-based computation of log determinant failed. Trying with LU decomposition instead.');
-                ld = logdet(sparse(eye(size(W,2)))+sig^2*WtDiW) + log(1 + rho*nvox*alpha) + nvox*log(1-rho) + 2*sum(log(tau));  
+                ld = logdet(Ci + UtAiU) + log(rho) + size(W,2)*2*log(sig) + nvox*log(1-rho) + 2*sum(log(tau));                    
             else
                 % If the failure is not due to a violation of 
                 % positive-definiteness, rethrow the exception.
