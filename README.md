@@ -1,5 +1,5 @@
 # TAFKAP
-Matlab & Python code for the probabilistic brain decoding algorithms "PRINCE" and "The Algorithm Formerly Known As Prince"
+Matlab & Python code for the probabilistic brain decoding algorithms "PRINCE" and "The Algorithm Formerly Known As PRINCE"
 
     This code runs the PRINCE or TAFKAP decoding algorithm. The original
     PRINCE algorithm was first described here: 
@@ -73,3 +73,20 @@ Matlab & Python code for the probabilistic brain decoding algorithms "PRINCE" an
     Matlab code. Please note that this version has not undergone as
     much testing as the Matlab version, as we have to date only used
     the latter in our own analyses. 
+
+    invChol_mex:
+    The Matlab implementation of TAFKAP uses invChol_mex for fast inversion
+    of symmetric, positive-definite matrices (see https://www.mathworks.com/
+    matlabcentral/fileexchange/34511-fast-and-accurate-symmetric-positive-
+    definite-matrix-inverse-using-cholesky-decomposition). This relies on
+    Matlab's ability to run pre-compiled C-code, as though it were a Matlab
+    function (see https://www.mathworks.com/help/matlab/ref/mex.html). TAFKAP 
+    includes a pre-compiled MEX files that should work on most Linux and 
+    Windows systems. If this throws an error, TAFKAP will default to using 
+    Matlab's built-in "inv" function, and issue a warning. If you encounter 
+    this and wish to benefit from invChol_mex's faster computation, try to run
+    run_to_compile_and_test.m from within the invChol folder. If this fails with
+    the message that you do not have a compiler installed, please try installing
+    the MinGW compiler (see https://www.mathworks.com/matlabcentral/answers/
+    311290-faq-how-do-i-install-the-mingw-compiler) and try again. 
+    
