@@ -6,6 +6,4 @@ foo.mat
 tmp.mat
 __pycache__/minimize.cpython-38.pyc
 __pycache__/TAFKAP_Decode.cpython-38.pyc
-invSNC_alt.asv
-invSNC.asv
-TAFKAP_Decode.asv
+*.asv
