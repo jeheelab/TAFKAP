@@ -2,6 +2,5 @@ doodle.ipynb
 temp.py
 foo.mat
 tmp.mat
-*.pyc
 *.asv
-
+*.pyc
