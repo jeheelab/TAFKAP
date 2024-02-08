@@ -622,7 +622,8 @@ def invSNC(W, tau, sig, rho, getld=True):
         omi = np.diag(tau**-2)
         ld = 2*np.log(tau).sum()
     else:
-        """         
+        
+        """"
         % Inverses of large matrices are cumbersome to compute. Our voxel
         % covariance is often a large matrix. However, we can leverage the fact
         % that this large matix has a simple structure, being the sum of a
@@ -630,28 +631,26 @@ def invSNC(W, tau, sig, rho, getld=True):
         % these circumstances, we can compute the inverse of the full matrix by
         % first computing the inverse of the diagonal matrix (which is easy)
         % and then "updating" this inverse by the contributions of the low-rank
-        % components.
+        % components. 
         %
-        % Our two low-rank components are (1-rho)*tau*tau' and sigma²*W*W'. The 
-        % former is rank-1, and so the inverse of the diagonal plus this rank-1 
-        % component can be computed using the Sherman-Morrison formula. The 
-        % latter has rank equal to the number of columns of W. To bring this 
-        % second update into the inverse, we apply the Woodbury identity (of 
-        % which Sherman-Morrison is a special case).  
+        % Older versions did this in two steps: first using the
+        % Sherman-Morrison identity and then updating the resulting inverse by
+        % the Woodbury identity, but it turns out to be faster to do it all ina
+        % single step via the Woodbury.
         %
         % More information:
         % https://www.math.uwaterloo.ca/~hwolkowi/matrixcookbook.pdf 
         % https://en.wikipedia.org/wiki/Woodbury_matrix_identity
-        % https://en.wikipedia.org/wiki/Sherman%E2%80%93Morrison_formula 
-        """
 
+        """         
+    
         alpha = 1/(1-rho)
-        Fi = alpha*np.diag(tau**-2)
-        ti = np.expand_dims(1/tau, 1)
-        Di = Fi - (rho*alpha**2*np.matmul(ti,ti.T))/(1+rho*nvox*alpha) #Sherman-Morrison
-        DiW = np.matmul(Di,W)
-        WtDiW = np.matmul(W.T,DiW)
-        omi = Di - np.matmul(np.linalg.solve((sig**-2*np.eye(W.shape[1])+WtDiW), DiW.T).T, DiW.T) #Woodbury
+        Ai = alpha*np.diag(tau**-2)
+        Ci = np.diag(1/np.concatenate((np.ones((1,1))*rho, np.ones((W.shape[1],1))*sig**2)).squeeze())
+        U = np.concatenate((tau[:,np.newaxis],W),1)
+        AiU = np.matmul(Ai,U)
+        UtAiU = np.matmul(U.T,AiU)
+        omi = Ai - np.matmul(np.linalg.solve(Ci+UtAiU, AiU.T).T, AiU.T)
 
         if getld:
             """
@@ -659,7 +658,7 @@ def invSNC(W, tau, sig, rho, getld=True):
             % this is based on the Matrix Determinant Lemma.
             % (https://en.wikipedia.org/wiki/Matrix_determinant_lemma)
             """
-            ld = logdet(np.eye(W.shape[1]) + sig**2*WtDiW) + log(1+rho*nvox*alpha) + nvox*log(1-rho) + 2*np.log(tau).sum()
+            ld = logdet(Ci + UtAiU) + log(rho) + W.shape[1]*2*log(sig) + nvox*log(1-rho) + 2*(np.log(tau)).sum() 
             return omi, ld
         else:
             return omi
@@ -683,5 +682,5 @@ def setdefaults(defaults, x):
     return x
 
 if __name__ == "__main__":
-    TAFKAP_decode()
-    # TAFKAP_decode(None, {'dec_type': 'PRINCE'})
+    # TAFKAP_decode()
+    TAFKAP_decode(None, {'dec_type': 'PRINCE'})
