@@ -547,7 +547,7 @@ def makeSNCData(p={}):
     simpar['stimval'] = stimval
     simpar['tau'] = tau_sim
     simpar['rho'] = rho_sim    
-    simpar['prec_mat'] = torch.cholesky_inverse(cov_sim)
+    simpar['prec_mat'] = torch.linalg.inv(cov_sim)
     simpar['run_idx'] = run_idx
 
     return rsp, simpar
