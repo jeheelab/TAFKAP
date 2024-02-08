@@ -3,7 +3,6 @@ import random
 from numpy import pi
 from numpy.lib.type_check import iscomplex
 import numpy as np
-from matplotlib import pyplot as plt
 from minimize import minimize
 
 
