@@ -2,12 +2,10 @@ from math import ceil, floor, log, log2, sqrt, inf
 import random
 from numpy import pi
 from numpy.lib.type_check import iscomplex
-import torch
 import numpy as np
 from matplotlib import pyplot as plt
-import time
 from minimize import minimize
-from scipy.io import savemat
+
 
 
 def TAFKAP_decode(samples=None, p={}):
@@ -30,13 +28,10 @@ def TAFKAP_decode(samples=None, p={}):
         #gradient), which are required by minimize.m and other efficient
         #optimization algorithms.
         
-        input_type ='tensor'
-        if type(params) is np.ndarray:
-            input_type = 'numpy'
-            params = torch.tensor(params)
-        elif type(params) is list:
+        input_type ='numpy'        
+        if type(params) is list:
             input_type='list'
-            params = torch.tensor(params)
+            params = np.array(params)
 
         nvox = noise.shape[1]
         ntrials = noise.shape[0]
@@ -46,31 +41,31 @@ def TAFKAP_decode(samples=None, p={}):
 
         omi, NormConst = invSNC(W[:, 0:p['nchan']], tau, sig, rho, True)
 
-        XXt = torch.mm(noise.t(), noise)
+        XXt = np.matmul(noise.T, noise)
         negloglik = 0.5*(MatProdTrace(XXt, omi) + ntrials*NormConst)
         negloglik = negloglik.item()
 
         if iscomplex(negloglik): negloglik=inf #If we encounter a degenerate solution (indicated by complex-valued likelihoods), make sure that the likelihood goes to infinity.       
 
-        if (torch.cat((tau,sig.unsqueeze(-1)),0)<0.001).any(): negloglik=inf
+        if (np.concatenate((tau,np.expand_dims(sig,-1)),0)<0.001).any(): negloglik=inf
         if rho.abs() > 0.999999: negloglik=inf
 
         loglik = -negloglik
 
         if getder:
-            der = torch.empty_like(params)
+            der = np.empty_like(params)
 
             ss = sqrt(ntrials)
-            U = torch.mm(omi, noise.t())/ss
+            U = np.matmul(omi, noise.T)/ss
 
-            dom = torch.mm(omi, torch.eye(nvox) - torch.mm(((1/ntrials)*XXt), omi))            
+            dom = np.matmul(omi, np.eye(nvox) - np.matmul(((1/ntrials)*XXt), omi))            
 
-            JI = 1-torch.eye(nvox)
-            R = torch.eye(nvox)*(1-rho)+rho
-            der[0:-2] = torch.mm(2*(dom*R), tau.unsqueeze(-1)).squeeze()
-            der[-1] = (dom*(tau.unsqueeze(-1)*tau.unsqueeze(0))*JI).sum()
+            JI = 1-np.eye(nvox)
+            R = np.eye(nvox)*(1-rho)+rho
+            der[0:-2] = np.matmul(2*(dom*R), tau[:,np.newaxis]).squeeze()
+            der[-1] = (dom*(tau[:,np.newaxis]*tau[np.newaxis,:])*JI).sum()
 
-            der[-2] = 2*sig*MatProdTrace(torch.mm(W[:, 0:p['nchan']].t(),omi), W[:, 0:p['nchan']]) - sqrt(2*sig)*(torch.mm(U.t(), W[:, 0:p['nchan']])**2).sum()
+            der[-2] = 2*sig*MatProdTrace(np.matmul(W[:, 0:p['nchan']].T,omi), W[:, 0:p['nchan']]) - sqrt(2*sig)*(np.matmul(U.T, W[:, 0:p['nchan']])**2).sum()
 
             der*=-0.5*ntrials
 
@@ -91,26 +86,26 @@ def TAFKAP_decode(samples=None, p={}):
     def estimate_W(samples=None, C=None, do_boot=False, test_samples=None, test_C=None):
         N = C.shape[0]
         if do_boot:
-            idx = torch.randint(N,(N,))
+            idx = np.random.randint(0,N,(N,))
         else:
-            idx = torch.arange(0,N)
+            idx = np.arange(0,N)
 
         if p['prev_C']:
-            sol = torch.linalg.lstsq(torch.cat((C[idx,p['nchan']:], torch.ones(N,1)), 1), samples[idx,:])
-            W_prev = sol[0].t()
+            sol = np.linalg.lstsq(np.concatenate((C[idx,p['nchan']:], np.ones((N,1))), 1), samples[idx,:])
+            W_prev = sol[0].T
             W_prev = W_prev[:,0:-1]
-            samples -= torch.mm(C[:, p['nchan']:], W_prev.t())
+            samples -= np.matmul(C[:, p['nchan']:], W_prev.T)
             C = C[:, 0:p['nchan']]
         else:
-            W_prev = torch.empty(0)
+            W_prev = np.empty((samples.shape[1],0))
 
-        sol = torch.linalg.lstsq(C[idx,:], samples[idx,:])
-        W_curr = sol[0].t()        
-        W = torch.cat((W_curr, W_prev), 1)
+        sol = np.linalg.lstsq(C[idx,:], samples[idx,:], rcond=None)
+        W_curr = sol[0].T        
+        W = np.concatenate((W_curr, W_prev), 1)
         
-        noise = samples[idx,:] - torch.mm(C[idx,:], W_curr.t())
-        if not test_samples==None:
-            test_noise = test_samples - torch.mm(test_C, W.t())
+        noise = samples[idx,:] - np.matmul(C[idx,:], W_curr.T)
+        if not test_samples is None:
+            test_noise = test_samples - np.matmul(test_C, W.T)
         else:
             test_noise = None
 
@@ -121,38 +116,36 @@ def TAFKAP_decode(samples=None, p={}):
         W = W[:,0:p['nchan']]     
         
         vars = (X**2).mean(0)
-        medVar = vars.median()
+        medVar = np.median(vars)
 
-        t = torch.ones((pp,)*2).tril(-1)==1        
-        samp_cov = torch.mm(X.t(),X)/n
+        t = np.tril(np.ones((pp,)*2),-1)==1        
+        samp_cov = np.matmul(X.T,X)/n
         
-        WWt = torch.mm(W,W.t())
-        rm = torch.cat((WWt[t].unsqueeze(-1), torch.ones(t.sum(),1)),1)
-        sol = torch.linalg.lstsq(rm, samp_cov[t].unsqueeze(-1))
+        WWt = np.matmul(W,W.T)
+        rm = np.concatenate((np.expand_dims(WWt[t], -1), np.ones((t.sum(),1))),1)
+        sol = np.linalg.lstsq(rm, np.expand_dims(samp_cov[t], -1), rcond=None)
         coeff = sol[0]
 
-        # coeff = torch.matmul(samp_cov[t].view(batch_size, -1, 1).transpose(-2,-1), rm.pinv().transpose(-2,1))
-
         target_diag = lambda_var*medVar + (1-lambda_var)*vars
-        target = coeff[0]*WWt + torch.ones((pp,)*2)*coeff[1]
-        target[torch.eye(pp)==1]=target_diag
+        target = coeff[0]*WWt + np.ones((pp,)*2)*coeff[1]
+        target[np.eye(pp)==1]=target_diag
                 
         C = (1-lamb)*samp_cov + lamb*target
         try:
-            torch.linalg.cholesky(C) #Cholesky decomp seems to be faster than eigendecomp, so assuming we mostly don't fail this test, it's faster this way
+            np.linalg.cholesky(C) #Cholesky decomp seems to be faster than eigendecomp, so assuming we mostly don't fail this test, it's faster this way
         except:
-            eigvals, eigvecs = torch.linalg.eigh(C)
+            eigvals, eigvecs = np.linalg.eigh(C)
             min_eigval = eigvals.min()
             print('WARNING: Non-positive definite covariance matrix detected. Lowest eigenvalue: ' + str(min_eigval.item()) + '. Finding a nearby PD matrix by thresholding eigenvalues at 1e-10.')        
             eigvals = eigvals.clamp(1e-10)
-            eigvals = torch.diag(eigvals)
-            C = torch.mm(torch.mm(eigvecs,eigvals), eigvecs.t())
+            eigvals = np.diag(eigvals)
+            C = np.matmul(np.matmul(eigvecs,eigvals), eigvecs.T)
 
         return C
 
     def find_lambda(cvInd, lambda_range):        
 
-        cv_folds = cvInd.unique()
+        cv_folds = np.unique(cvInd)
         K = cv_folds.shape[0]
         assert K>1, 'Must have at least two CV folds'
         
@@ -163,11 +156,11 @@ def TAFKAP_decode(samples=None, p={}):
             for cv_iter2 in range(K):
                 estC = estimate_cov(est_noise_cv[cv_iter2], intern_lamb[0], intern_lamb[1], W_cv[cv_iter2])
                 vncv = val_noise_cv[cv_iter2]
-                valC = torch.mm(vncv.t(), vncv)/vncv.shape[0] #sample covariance of validation data
+                valC = np.matmul(vncv.T, vncv)/vncv.shape[0] #sample covariance of validation data
                 loss += fun_norm_loss(estC, valC)
 
-            if loss.is_complex():
-                loss = torch.Tensor(inf)                
+            if isinstance(loss, complex):
+                loss = np.array(inf)                
             
             return loss
 
@@ -175,7 +168,7 @@ def TAFKAP_decode(samples=None, p={}):
         # Pre-compute tuning weights and noise values to use in each cross-validation split
         for cv_iter in range(K):
             val_trials = cvInd==cv_folds[cv_iter]
-            est_trials = val_trials.logical_not()
+            est_trials = np.logical_not(val_trials)
             est_samples = train_samples[est_trials,:]
             val_samples = train_samples[val_trials,:]
             this_W_cv, this_est_noise_cv, this_val_noise_cv = estimate_W(est_samples, Ctrain[est_trials,:,0], False, val_samples, Ctrain[val_trials,:,0])
@@ -184,53 +177,53 @@ def TAFKAP_decode(samples=None, p={}):
             val_noise_cv.append(this_val_noise_cv)
 
         # Grid search
-        s = [x.numel() for x in lambda_range]
+        s = [x.size for x in lambda_range]
         Ngrid = [min(max(2, ceil(sqrt(x))), x) for x in s] #Number of values to visit in each dimension (has to be at least 2, except if there is only 1 value for that dimension)        
 
-        grid_vec = [torch.linspace(0,y-1,x).int() for x,y in zip(Ngrid, s)]
-        grid_x, grid_y = torch.meshgrid(grid_vec[0], grid_vec[1])
-        grid_l1, grid_l2 = torch.meshgrid(lambda_range[0], lambda_range[1])
+        grid_vec = [np.linspace(0,y-1,x).astype(int) for x,y in zip(Ngrid, s)]
+        grid_x, grid_y = np.meshgrid(grid_vec[0], grid_vec[1])
+        grid_l1, grid_l2 = np.meshgrid(lambda_range[0], lambda_range[1])
         grid_l1, grid_l2 = grid_l1.flatten(), grid_l2.flatten()
 
         sz = s.copy()
         sz.reverse()
         
         print('--GRID SEARCH--')
-        losses = torch.empty(grid_x.numel(),1)
-        for grid_iter in range(grid_x.numel()):
-            this_lambda = torch.Tensor((lambda_range[0][grid_x.flatten()[grid_iter]], lambda_range[1][grid_y.flatten()[grid_iter]]))
+        losses = np.empty((grid_x.size,1))
+        for grid_iter in range(grid_x.size):
+            this_lambda = np.array((lambda_range[0][grid_x.flatten()[grid_iter]], lambda_range[1][grid_y.flatten()[grid_iter]]))
             losses[grid_iter] = visit(this_lambda)
-            print("{:02d}/{:02d} -- lambda_var: {:3.2f}, lambda: {:3.2f}, loss: {:g}".format(grid_iter, grid_x.numel(), *this_lambda, losses[grid_iter].item()))
+            print("{:02d}/{:02d} -- lambda_var: {:3.2f}, lambda: {:3.2f}, loss: {:g}".format(grid_iter, grid_x.size, *this_lambda, losses[grid_iter].item()))
 
         visited = sub2ind(sz, grid_y.flatten().tolist(), grid_x.flatten().tolist())
-        best_loss, best_idx = losses.min(0)
+        best_loss, best_idx = losses.min(0).item(), losses.argmin(0).item()
         best_idx = visited[best_idx]
 
         best_lambda_gridsearch = (grid_l1[best_idx], grid_l2[best_idx])
-        print('Best lambda setting from grid search: lambda_var = {:3.2f}, lambda = {:3.2f}, loss = {:g}'.format(*best_lambda_gridsearch, best_loss.item()))        
+        print('Best lambda setting from grid search: lambda_var = {:3.2f}, lambda = {:3.2f}, loss = {:g}'.format(*best_lambda_gridsearch, best_loss))        
                 
         # Pattern search
         print('--PATTERN SEARCH--')
-        step_size = int(2**floor(log2(torch.diff(grid_y[0][0:2])/2))) #Round down to the nearest power of 2 (so we can keep dividing the step size in half
+        step_size = int(2**floor(log2(np.diff(grid_x[0][0:2])/2))) #Round down to the nearest power of 2 (so we can keep dividing the step size in half
         while True:
             best_y, best_x = ind2sub(sz,best_idx)                        
-            new_x = best_x + torch.Tensor((-1, 1, -1, 1)).int()*step_size
-            new_y = best_y + torch.Tensor((-1, -1, 1, 1)).int()*step_size            
-            del_idx = torch.logical_or(torch.logical_or(new_x<0, new_x >= lambda_range[0].numel()), torch.logical_or( new_y<0,  new_y >= lambda_range[1].numel()))            
-            new_x = new_x[del_idx.logical_not()]
-            new_y = new_y[del_idx.logical_not()]
+            new_x = best_x + np.array((-1, 1, -1, 1)).astype(int)*step_size
+            new_y = best_y + np.array((-1, -1, 1, 1)).astype(int)*step_size            
+            del_idx = np.logical_or(np.logical_or(new_x<0, new_x >= lambda_range[0].size), np.logical_or( new_y<0,  new_y >= lambda_range[1].size))            
+            new_x = new_x[np.logical_not(del_idx)]
+            new_y = new_y[np.logical_not(del_idx)]
             new_idx = sub2ind(sz, new_y.tolist(), new_x.tolist())            
             not_visited = [x not in visited for x in new_idx]
             new_idx = [i for (i, v) in zip(new_idx, not_visited) if v]
             if len(new_idx)>0:
-                this_losses = torch.empty(len(new_idx))
+                this_losses = np.empty(len(new_idx))
                 for ii in range(len(new_idx)):
-                    this_lambda = torch.Tensor((grid_l1[new_idx[ii]], grid_l2[new_idx[ii]]))
+                    this_lambda = np.array((grid_l1[new_idx[ii]], grid_l2[new_idx[ii]]))
                     this_losses[ii] = visit(this_lambda)
                     print("Step size: {:d}, lambda_var: {:3.2f}, lambda: {:3.2f}, loss: {:g}".format(step_size, *this_lambda, this_losses[ii].item()))
                 visited.extend(new_idx)
-                # visited = torch.cat((visited, torch.tensor(new_idx)),0)
-                losses = torch.cat((losses, this_losses.unsqueeze(-1)),0)
+                # visited = np.concatenate((visited, np.array(new_idx)),0)
+                losses = np.concatenate((losses, this_losses[:,np.newaxis]),0)
 
             if (this_losses<best_loss).any():
                 best_loss, best_idx = losses.min(0)
@@ -240,16 +233,10 @@ def TAFKAP_decode(samples=None, p={}):
             else:
                 break
 
-        best_lambda = torch.Tensor((grid_l1[best_idx], grid_l2[best_idx]))
-        print("Best setting found: lambda_var = {:3.2f}, lambda = {:3.2f}, loss: {:g}".format(*best_lambda, best_loss.item()))
+        best_lambda = np.array((grid_l1[best_idx], grid_l2[best_idx]))
+        print("Best setting found: lambda_var = {:3.2f}, lambda = {:3.2f}, loss: {:g}".format(*best_lambda, best_loss))
         
         return best_lambda
-
-
-        
-    torch.set_default_dtype(torch.float64)
-    # torch.set_default_tensor_type(torch.cuda.DoubleTensor)
-
 
 
     defaults = { #Default settings for parameters in 'p'    
@@ -288,8 +275,8 @@ def TAFKAP_decode(samples=None, p={}):
         })    
         
     
-    p['train_trials'] = torch.arange(Ntrials) < Ntraintrials
-    p['test_trials'] = torch.logical_not(p['train_trials'])
+    p['train_trials'] = np.arange(0,Ntrials) < Ntraintrials
+    p['test_trials'] = np.logical_not(p['train_trials'])
 
     p['stimval'] = sp['stimval']
     if p['stim_type']=='circular': p['stimval'] /= (pi/90)
@@ -297,13 +284,11 @@ def TAFKAP_decode(samples=None, p={}):
 
     assert 'stimval' in p and 'train_trials' in p and 'test_trials' in p and 'runNs' in p, 'Must specify stimval, train_trials, test_trials and runNs'
 
-    torch.manual_seed(p['randseed'])    
     np.random.seed(p['randseed'])
     random.seed(p['randseed'])
-    # torch.use_deterministic_algorithms(True)
 
     train_samples = samples[p['train_trials'],:]
-    test_samples = samples[torch.logical_not(p['train_trials']),:]
+    test_samples = samples[np.logical_not(p['train_trials']),:]
     Ntraintrials = train_samples.shape[0]
     Ntesttrials = test_samples.shape[0]
     Nvox = train_samples.shape[1]
@@ -326,51 +311,51 @@ def TAFKAP_decode(samples=None, p={}):
     """
 
     if p['stim_type']=='circular':
-        s_precomp = torch.linspace(0, 2*pi, 101)
-        s_precomp = (s_precomp[0:-1]).view(100,1)
-        ph = torch.linspace(0, 2*pi/p['nchan'], p['precomp_C']+1)
+        s_precomp = np.linspace(0, 2*pi, 101)
+        s_precomp = (s_precomp[0:-1]).reshape(100,1)
+        ph = np.linspace(0, 2*pi/p['nchan'], p['precomp_C']+1)
         ph = ph[0:-1]
         classes=None
     elif p['stim_type']=='categorical':
-        classes = torch.unique(p['stimval'])
-        assert (classes==classes.int()).all(), 'Class labels must be integers'
-        classes = classes.int()
-        Nclasses = classes.numel()
+        classes = np.unique(p['stimval'])
+        assert (classes==classes.astype(int)).all(), 'Class labels must be integers'
+        classes = classes.astype(int)
+        Nclasses = classes.size
         p['nchan']=Nclasses
-        ph=torch.zeros(1)
+        ph=np.zeros(1)
         p['precomp_C'] = 1
-        s_precomp = classes.view(Nclasses,1)
+        s_precomp = classes.reshape(Nclasses,1)
     
-    C_precomp = torch.empty(s_precomp.shape[0], p['nchan'], p['precomp_C'])
-    Ctrain = torch.empty(Ntraintrials, p['nchan'], p['precomp_C'])
+    C_precomp = np.empty((s_precomp.shape[0], p['nchan'], p['precomp_C']))
+    Ctrain = np.empty((Ntraintrials, p['nchan'], p['precomp_C']))
     for i in range(p['precomp_C']):
         C_precomp[:,:,i] = fun_basis(s_precomp-ph[i], p['nchan'], p['chan_exp'], classes)
         Ctrain[:,:,i] = fun_basis(train_stimval-ph[i], p['nchan'], p['chan_exp'], classes)
 
-    Ctest = torch.empty(Ntesttrials,p['nchan'],p['precomp_C'])
+    Ctest = np.empty((Ntesttrials,p['nchan'],p['precomp_C']))
     if p['prev_C']:
-        Ctrain_prev = torch.cat((torch.empty(1, p['nchan'], p['precomp_C']), Ctrain[0:-1,:,:]), 0)
+        Ctrain_prev = np.concatenate((np.empty((1, p['nchan'], p['precomp_C'])), Ctrain[0:-1,:,:]), 0)
         train_runNs = p['runNs'][p['train_trials']]
-        sr_train = train_runNs == torch.cat((torch.empty(1), train_runNs[0:-1]), 0)
-        Ctrain_prev[sr_train.logical_not(),:,:] = 0
-        Ctrain = torch.cat((Ctrain, Ctrain_prev), 1)
+        sr_train = train_runNs == np.concatenate((np.empty(1), train_runNs[0:-1]), 0)
+        Ctrain_prev[np.logical_not(sr_train),:,:] = 0
+        Ctrain = np.concatenate((Ctrain, Ctrain_prev), 1)
         test_runNs = p['runNs'][p['test_trials']]
-        sr_test = test_runNs == torch.cat((torch.empty(1), test_runNs[0:-1]), 0)
+        sr_test = test_runNs == np.concatenate((np.empty(1), test_runNs[0:-1]), 0)
 
         test_stimval = p['stimval'][p['test_trials']]
         if p['stim_type']=='circular': test_stimval/=(90/pi)
         for i in range(p['precomp_C']):
             Ctest[:,:,i] = fun_basis(test_stimval-ph[i], p['nchan'], p['chan_exp'], classes)
-        Ctest_prev = torch.cat((torch.empty(1, p['nchan'], p['precomp_C']), Ctest[0:-1,:,:]), 0)
-        Ctest_prev[sr_test.logical_not(),:,:] =0
+        Ctest_prev = np.concatenate((np.empty((1, p['nchan'], p['precomp_C'])), Ctest[0:-1,:,:]), 0)
+        Ctest_prev[np.logical_not(sr_test),:,:] =0
 
-    cnt = torch.zeros(Ntesttrials, s_precomp.shape[0])
+    cnt = np.zeros((Ntesttrials, s_precomp.shape[0]))
     
     # Find best hyperparameter values (using inner CV-loop within the training data)
     if p['dec_type']=='TAFKAP':
         print('--PERFORMING HYPERPARAMETER SEARCH--')
-        lvr = torch.linspace(0,1,50)
-        lr = torch.linspace(0,1,50)
+        lvr = np.linspace(0,1,50)
+        lr = np.linspace(0,1,50)
         lr = lr[1:]
         hypers = find_lambda(p['runNs'][p['train_trials']], (lvr, lr))
     elif p['dec_type']=='PRINCE':
@@ -402,39 +387,38 @@ def TAFKAP_decode(samples=None, p={}):
             cov_est = estimate_cov(noise, hypers[0], hypers[1], W)
             
             prec_mat = chol_invld(cov_est)
-            if not torch.is_tensor(prec_mat):
+            if not isinstance(prec_mat, np.ndarray):
                 print('WARNING: Covariance estimate wasn\'t positive definite. Trying again with another bootstrap sample.')
                 continue
         
         else:
             print('--ESTIMATING PRINCE GENERATIVE MODEL PARAMETERS--')
             W, noise, _ = estimate_W(train_samples, Ctrain[:,:,0], False)            
-            init_losses = torch.ones(100)*inf
+            init_losses = np.ones(100)*inf
             while init_losses.isinf().all():
-                inits = [torch.rand(Nvox+2) for x in range(100)]
-                # inits[-1] = torch.cat((torch.ones(Nvox)*0.7, torch.ones(1)*0.3, torch.ones(1)*0.05),0)
-                init_losses = torch.tensor([fun_negLL_norm(x,False) for x in inits])
+                inits = [np.random.rand(Nvox+2) for x in range(100)]
+                init_losses = np.array([fun_negLL_norm(x,False) for x in inits])
             
             _,min_idx = init_losses.min(0)        
 
             sol,_,_ = minimize(inits[min_idx].numpy(), fun_negLL_norm, maxnumlinesearch=1e4)            
             # savemat('tmp.mat', {'W':W.numpy(), 'noise':noise.numpy(), 'init':inits[min_idx].numpy(), 'sol':sol})
-            sol = torch.tensor(sol)
+            sol = np.array(sol)
             prec_mat = invSNC(W[:, 0:p['nchan']], sol[0:-2], sol[-2], sol[-1], False)
             pc_idx=0
 
         # Compute likelihoods on test-trials given model parameter sample
 
-        pred = C_precomp[:,:,pc_idx] @ W[:, 0:p['nchan']].t()
+        pred = C_precomp[:,:,pc_idx] @ W[:, 0:p['nchan']].T
 
         if (i+1)%100==0: old_cnt = cnt.clone()
 
         # The following lines are a bit different (and more elegant/efficient) in Python+Pytorch than in Matlab
         res = test_samples
         if p['prev_C']:
-            res -= torch.matmul(Ctest_prev[:,:,pc_idx], W[:, p['nchan']:].t().unsqueeze(0)).squeeze()
+            res -= np.matmul(Ctest_prev[:,:,pc_idx], np.expand_dims(W[:, p['nchan']:].T, 0)).squeeze()
         
-        res = res.unsqueeze(1) - pred.unsqueeze(0)
+        res = res[:,np.newaxis] - pred[np.newaxis,:]
         ps = -0.5*((res @ prec_mat) * res).sum(-1)
         ps = (ps-ps.amax(1,True)).softmax(1)
 
@@ -447,10 +431,11 @@ def TAFKAP_decode(samples=None, p={}):
 
     liks = cnt/cnt.sum(1,True) #(Normalized) likelihoods (= posteriors, assuming a flat prior)
     if p['stim_type'] == 'circular':        
-        if p['precision']=='double':
-            pop_vec = liks.type(torch.complex128) @ (1j*s_precomp).exp()
-        elif p['precision']=='single':
-            pop_vec = liks.type(torch.complex64) @ (1j*s_precomp).exp()
+        # if p['precision']=='double':
+        #     pop_vec = liks.type(torch.complex128) @ (1j*s_precomp).exp()
+        # elif p['precision']=='single':
+        #     pop_vec = liks.type(torch.complex64) @ (1j*s_precomp).exp()
+        pop_vec = np.matmul(liks, 1j*np.exp(s_precomp))
         est = (pop_vec.angle()/pi*90) % 180 #Stimulus estimate (likelihood/posterior means)
         unc = (-2*pop_vec.abs().log()).sqrt()/pi*90 #Uncertainty (defined here as circular SDs of likelihoods/posteriors)
     elif p['stim_type'] == 'categorical':
@@ -476,6 +461,11 @@ def fun_DJS(P,Q):
     M = P/2+Q/2
     out = fun_DKL(P,M)/2 + fun_DKL(Q,M)/2
     return out
+
+def cholesky_inverse(X):
+    c = np.linalg.inv(np.linalg.cholesky(X))
+    inverse = np.dot(c.T,c)
+    return inverse
     
 def makeSNCData(p={}):
     
@@ -496,50 +486,49 @@ def makeSNCData(p={}):
     'sim_stim_type': 'circular'
     }
 
-    p = setdefaults(defs,p)
-    torch.manual_seed(p['randseed'])
+    p = setdefaults(defs,p)    
     np.random.seed(p['randseed'])
     random.seed(p['randseed'])
 
     nruns = p['ntrials']/p['ntrials_per_run']
     assert round(nruns)==nruns, 'Number of trials per run must divide evenly into total number of trials'
     nruns = int(nruns)    
-    run_idx = torch.arange(nruns).repeat_interleave(p['ntrials_per_run'])
+    run_idx = np.arange(nruns).repeat(p['ntrials_per_run'])
 
     if p['sim_stim_type'] == 'circular':        
-        base_ori = torch.linspace(0, 2*pi, p['ntrials_per_run']+1)    
-        base_ori = base_ori[0:-1]        
-        run_offsets = (torch.rand(nruns)*(base_ori[1]-base_ori[0])).unsqueeze(1)
-        ori = base_ori + run_offsets                
+        base_ori = np.linspace(0, 2*pi, p['ntrials_per_run']+1)    
+        base_ori = base_ori[:-1]        
+        run_offsets = (np.random.rand(nruns)*(base_ori[1]-base_ori[0]))
+        ori = base_ori + run_offsets[:,np.newaxis]                
         stimval = ori
         classes = None
 
     elif p['sim_stim_type'] == 'categorical':
         p['nchan'] = p['nclasses']
         assert (p['ntrials_per_run'] % p['nclasses'])==0, 'To simulate categorical stimulus labels, number of classes must divide neatly into the number of trials per run.'                
-        stimval = torch.tile(torch.arange(p['nclasses']), (1, int(p['ntrials_per_run']/p['nclasses']))).repeat((nruns,1))        
-        classes = torch.arange(p['nclasses'])
+        stimval = np.tile(np.arange(p['nclasses']), (1, int(p['ntrials_per_run']/p['nclasses']))).repeat((nruns,1))        
+        classes = np.arange(p['nclasses'])
 
     for j in range(nruns):
-        stimval[j][:] = stimval[j][torch.randperm(p['ntrials_per_run'])]
+        stimval[j][:] = stimval[j][np.random.permutation(p['ntrials_per_run'])]
         
     stimval = stimval.ravel()
 
     # Simulate generative model parameters
-    W = torch.randn((p['nvox'],p['nchan']))*p['Wstd']
-    tau_sim = torch.randn((p['nvox'],1))*p['taustd']+p['taumean']    
+    W = np.random.randn(p['nvox'],p['nchan'])*p['Wstd']
+    tau_sim = np.random.randn(p['nvox'],1)*p['taustd']+p['taumean']    
     sig_sim = p['sigma']
     rho_sim = p['rho']
         
     W_shuffled = W
     for j in range(W_shuffled.shape[0]):
-        W_shuffled[j][:] = W_shuffled[j][torch.randperm(W_shuffled.shape[1])]        
+        W_shuffled[j][:] = W_shuffled[j][np.random.permutation(W_shuffled.shape[1])]        
 
-    cov_sim = (1-rho_sim)*torch.diag(tau_sim.squeeze()**2) + rho_sim*(tau_sim*tau_sim.t()) + sig_sim**2*torch.mm(W,W.t()) + p['sigma_arb']**2*torch.mm(W_shuffled,W_shuffled.t())    
+    cov_sim = (1-rho_sim)*np.diag(tau_sim.squeeze()**2) + rho_sim*(tau_sim*tau_sim.T) + sig_sim**2*np.matmul(W,W.T) + p['sigma_arb']**2*np.matmul(W_shuffled,W_shuffled.T)    
 
-    Q = torch.linalg.cholesky(cov_sim)
-    noise = torch.matmul(Q, torch.randn((p['nvox'], p['ntrials']))).t()
-    tun = torch.matmul(fun_basis(stimval,classes=classes),W.t())
+    Q = np.linalg.cholesky(cov_sim)
+    noise = np.matmul(Q, np.random.randn(p['nvox'], p['ntrials'])).T
+    tun = np.matmul(fun_basis(stimval,classes=classes),W.T)
     rsp = tun + noise
 
     simpar = p
@@ -547,7 +536,7 @@ def makeSNCData(p={}):
     simpar['stimval'] = stimval
     simpar['tau'] = tau_sim
     simpar['rho'] = rho_sim    
-    simpar['prec_mat'] = torch.cholesky_inverse(cov_sim)
+    simpar['prec_mat'] = cholesky_inverse(cov_sim)
     simpar['run_idx'] = run_idx
 
     return rsp, simpar
@@ -555,36 +544,36 @@ def makeSNCData(p={}):
 def fun_norm_loss(c_est, c0):
     c_est_inv, c_est_ld = chol_invld(c_est, True)    
 
-    if torch.is_tensor(c_est_inv):           
+    if isinstance(c_est_inv, np.ndarray):           
         loss = (c_est_ld + (c_est_inv*c0).sum())/c0.shape[1]                        
     else:
-        loss = (torch.logdet(c_est) + torch.linalg.solve(c_est, c0).trace())/c0.shape[1]
+        loss = (np.linalg.slogdet(c_est)[1] + np.linalg.solve(c_est, c0).trace())/c0.shape[1]
 
     return loss
  
 def fun_basis(s, nchan=8.0, expo=5.0, classes=None):
-    if s.dim()==1: s=s.unsqueeze(-1)
+    if s.ndim==1: s=s[:,np.newaxis]
     d = s.shape
     
-    if d[1]>d[0]: s=s.t() #make sure s is a column vector
+    if d[1]>d[0]: s=s.T #make sure s is a column vector
     
     if not classes==None:
-        if classes.dim()==1: classes=classes.unsqueeze(0)
+        if classes.dim()==1: classes=classes[np.newaxis,:]
         d = classes.shape        
-        if d[0]>d[1]: classes=classes.t() #make sure classes is a row vector
+        if d[0]>d[1]: classes=classes.T #make sure classes is a row vector
         c = (s==classes)*1.0
     else:
-        TuningCentres = torch.arange(0.0, 2*pi-0.001, 2*pi/nchan).unsqueeze(0)        
-        c = torch.cos(s-TuningCentres).clamp(0)**expo
+        TuningCentres = np.arange(0.0, 2*pi-0.001, 2*pi/nchan)
+        c = np.cos(s-TuningCentres[np.newaxis,:]).clip(0)**expo
 
     return c
 
 def chol_invld(X, get_ld=False):
     try:
-        A = torch.linalg.cholesky(X)
-        Xi = torch.cholesky_inverse(A)
+        A = np.linalg.cholesky(X)
+        Xi = cholesky_inverse(A)
         if get_ld: 
-            ld = 2*torch.diag(A).log().sum()
+            ld = 2*np.diag(A).log().sum()
             return Xi, ld
         else:
             return Xi
@@ -609,12 +598,12 @@ def ind2sub(sz, idx):
 def logdet(A, try_chol=True):
     if try_chol:    
         try:
-            v = 2*torch.diag(torch.linalg.cholesky(A)).log().sum()
+            v = 2*np.diag(np.linalg.cholesky(A)).log().sum()
             return v    
         except:
             v = 0 #Just to satisfy PyLance; we will fall through out of the try block anyway and compute v for real
 
-    v = torch.logdet(A)
+    _,v = np.linalg.slogdet(A)
     
     return v
 
@@ -633,7 +622,7 @@ def invSNC(W, tau, sig, rho, getld=True):
     nvox = W.shape[0]
     
     if sig==0 and rho==0:
-        omi = torch.diag(tau**-2)
+        omi = np.diag(tau**-2)
         ld = 2*tau.log().sum()
     else:
         """         
@@ -660,12 +649,12 @@ def invSNC(W, tau, sig, rho, getld=True):
         """
 
         alpha = 1/(1-rho)
-        Fi = alpha*torch.diag(tau**-2)
-        ti = (1/tau).unsqueeze(-1)
-        Di = Fi - (rho*alpha**2*torch.mm(ti,ti.t()))/(1+rho*nvox*alpha) #Sherman-Morrison
-        DiW = torch.mm(Di,W)
-        WtDiW = torch.mm(W.t(),DiW)
-        omi = Di - torch.mm(torch.linalg.solve((sig**-2*torch.eye(W.shape[1])+WtDiW), DiW.t()).t(), DiW.t()) #Woodbury
+        Fi = alpha*np.diag(tau**-2)
+        ti = np.expand_dims(1/tau, 1)
+        Di = Fi - (rho*alpha**2*np.matmul(ti,ti.T))/(1+rho*nvox*alpha) #Sherman-Morrison
+        DiW = np.matmul(Di,W)
+        WtDiW = np.matmul(W.T,DiW)
+        omi = Di - np.matmul(np.linalg.solve((sig**-2*np.eye(W.shape[1])+WtDiW), DiW.T).T, DiW.T) #Woodbury
 
         if getld:
             """
@@ -673,16 +662,16 @@ def invSNC(W, tau, sig, rho, getld=True):
             % this is based on the Matrix Determinant Lemma.
             % (https://en.wikipedia.org/wiki/Matrix_determinant_lemma)
             """
-            ld = logdet(torch.eye(W.shape[1]) + sig**2*WtDiW) + log(1+rho*nvox*alpha) + nvox*log(1-rho) + 2*tau.log().sum()
+            ld = logdet(np.eye(W.shape[1]) + sig**2*WtDiW) + log(1+rho*nvox*alpha) + nvox*log(1-rho) + 2*tau.log().sum()
             return omi, ld
         else:
             return omi
 
 def MatProdTrace(A,B):
-    return (A.flatten()*B.t().flatten()).sum()
+    return (A.flatten()*B.T.flatten()).sum()
 
 def MatProdDiag(A,B):
-    return (A*B.t()).sum(1)
+    return (A*B.T).sum(1)
 
 def setdefaults(defaults, x):    
     for key in defaults:

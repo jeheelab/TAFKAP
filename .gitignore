@@ -7,3 +7,4 @@ tmp.mat
 __pycache__/minimize.cpython-38.pyc
 __pycache__/TAFKAP_Decode.cpython-38.pyc
 *.asv
+__pycache__/minimize.cpython-310.pyc
