@@ -181,8 +181,8 @@ def TAFKAP_decode(samples=None, p={}):
         Ngrid = [min(max(2, ceil(sqrt(x))), x) for x in s] #Number of values to visit in each dimension (has to be at least 2, except if there is only 1 value for that dimension)        
 
         grid_vec = [np.linspace(0,y-1,x).astype(int) for x,y in zip(Ngrid, s)]
-        grid_x, grid_y = np.meshgrid(grid_vec[0], grid_vec[1])
-        grid_l1, grid_l2 = np.meshgrid(lambda_range[0], lambda_range[1])
+        grid_x, grid_y = np.meshgrid(grid_vec[0], grid_vec[1], indexing='ij')
+        grid_l1, grid_l2 = np.meshgrid(lambda_range[0], lambda_range[1], indexing='ij')
         grid_l1, grid_l2 = grid_l1.flatten(), grid_l2.flatten()
 
         sz = s.copy()
@@ -204,7 +204,7 @@ def TAFKAP_decode(samples=None, p={}):
                 
         # Pattern search
         print('--PATTERN SEARCH--')
-        step_size = int(2**floor(log2(np.diff(grid_x[0][0:2])/2))) #Round down to the nearest power of 2 (so we can keep dividing the step size in half
+        step_size = int(2**floor(log2(np.diff(grid_y[0][0:2])/2))) #Round down to the nearest power of 2 (so we can keep dividing the step size in half
         while True:
             best_y, best_x = ind2sub(sz,best_idx)                        
             new_x = best_x + np.array((-1, 1, -1, 1)).astype(int)*step_size
@@ -226,7 +226,7 @@ def TAFKAP_decode(samples=None, p={}):
                 losses = np.concatenate((losses, this_losses[:,np.newaxis]),0)
 
             if (this_losses<best_loss).any():
-                best_loss, best_idx = losses.min(0)
+                best_loss, best_idx = losses.min(0).item(), losses.argmin(0).item()
                 best_idx = visited[best_idx]
             elif step_size>1:
                 step_size = int(step_size/2)
