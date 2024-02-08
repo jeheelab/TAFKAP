@@ -1,10 +1,6 @@
-__pycache__/TAFKAP.cpython-38.pyc
-__pycache__/temp.cpython-38.pyc
 doodle.ipynb
 temp.py
 foo.mat
 tmp.mat
-__pycache__/minimize.cpython-38.pyc
-__pycache__/TAFKAP_Decode.cpython-38.pyc
 *.asv
-__pycache__/minimize.cpython-310.pyc
+*.pyc

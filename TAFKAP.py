@@ -48,7 +48,7 @@ def TAFKAP_decode(samples=None, p={}):
         if iscomplex(negloglik): negloglik=inf #If we encounter a degenerate solution (indicated by complex-valued likelihoods), make sure that the likelihood goes to infinity.       
 
         if (np.concatenate((tau,np.expand_dims(sig,-1)),0)<0.001).any(): negloglik=inf
-        if rho.abs() > 0.999999: negloglik=inf
+        if np.abs(rho) > 0.999999: negloglik=inf
 
         loglik = -negloglik
 
@@ -68,10 +68,8 @@ def TAFKAP_decode(samples=None, p={}):
             der[-2] = 2*sig*MatProdTrace(np.matmul(W[:, 0:p['nchan']].T,omi), W[:, 0:p['nchan']]) - sqrt(2*sig)*(np.matmul(U.T, W[:, 0:p['nchan']])**2).sum()
 
             der*=-0.5*ntrials
-
-            if input_type=='numpy':
-                der = der.numpy()
-            elif input_type=='list':
+           
+            if input_type=='list':
                 der = der.tolist()
 
             return loglik, der
@@ -274,7 +272,7 @@ def TAFKAP_decode(samples=None, p={}):
             'nclasses': nclasses        
         })    
         
-    
+    Ntrials = samples.shape[0]
     p['train_trials'] = np.arange(0,Ntrials) < Ntraintrials
     p['test_trials'] = np.logical_not(p['train_trials'])
 
@@ -395,14 +393,14 @@ def TAFKAP_decode(samples=None, p={}):
             print('--ESTIMATING PRINCE GENERATIVE MODEL PARAMETERS--')
             W, noise, _ = estimate_W(train_samples, Ctrain[:,:,0], False)            
             init_losses = np.ones(100)*inf
-            while init_losses.isinf().all():
+            while np.isinf(init_losses).all():
                 inits = [np.random.rand(Nvox+2) for x in range(100)]
                 init_losses = np.array([fun_negLL_norm(x,False) for x in inits])
             
-            _,min_idx = init_losses.min(0)        
+            min_idx = init_losses.argmin(0)        
 
-            sol,_,_ = minimize(inits[min_idx].numpy(), fun_negLL_norm, maxnumlinesearch=1e4)            
-            # savemat('tmp.mat', {'W':W.numpy(), 'noise':noise.numpy(), 'init':inits[min_idx].numpy(), 'sol':sol})
+            sol,_,_ = minimize(inits[min_idx], fun_negLL_norm, maxnumlinesearch=1e4)            
+            
             sol = np.array(sol)
             prec_mat = invSNC(W[:, 0:p['nchan']], sol[0:-2], sol[-2], sol[-1], False)
             pc_idx=0
@@ -411,7 +409,7 @@ def TAFKAP_decode(samples=None, p={}):
 
         pred = C_precomp[:,:,pc_idx] @ W[:, 0:p['nchan']].T
 
-        if (i+1)%100==0: old_cnt = cnt.clone()
+        if (i+1)%100==0: old_cnt = cnt.copy()
 
         # The following lines are a bit different (and more elegant/efficient) in Python+Pytorch than in Matlab
         res = test_samples
@@ -420,28 +418,28 @@ def TAFKAP_decode(samples=None, p={}):
         
         res = res[:,np.newaxis] - pred[np.newaxis,:]
         ps = -0.5*((res @ prec_mat) * res).sum(-1)
-        ps = (ps-ps.amax(1,True)).softmax(1)
+        ps = softmax(ps-ps.max(1,keepdims=True), 1)
 
         cnt += ps
 
         if (i+1)%100==0:
-            mDJS = fun_DJS(old_cnt/old_cnt.sum(1,True), cnt/cnt.sum(1,True)).amax()
+            mDJS = fun_DJS(old_cnt/old_cnt.sum(1,keepdims=True), cnt/cnt.sum(1,keepdims=True)).max()
             print('Max. change in likelihoods (JS-divergence) in last 100 iterations: {:g}'.format(mDJS))
             if mDJS < p['DJS_tol']: break
 
-    liks = cnt/cnt.sum(1,True) #(Normalized) likelihoods (= posteriors, assuming a flat prior)
+    liks = cnt/cnt.sum(1,keepdims=True) #(Normalized) likelihoods (= posteriors, assuming a flat prior)
     if p['stim_type'] == 'circular':        
         # if p['precision']=='double':
         #     pop_vec = liks.type(torch.complex128) @ (1j*s_precomp).exp()
         # elif p['precision']=='single':
         #     pop_vec = liks.type(torch.complex64) @ (1j*s_precomp).exp()
-        pop_vec = np.matmul(liks, 1j*np.exp(s_precomp))
-        est = (pop_vec.angle()/pi*90) % 180 #Stimulus estimate (likelihood/posterior means)
-        unc = (-2*pop_vec.abs().log()).sqrt()/pi*90 #Uncertainty (defined here as circular SDs of likelihoods/posteriors)
+        pop_vec = np.matmul(liks, np.exp(1j*s_precomp))
+        est = (np.angle(pop_vec)/pi*90) % 180 #Stimulus estimate (likelihood/posterior means)
+        unc = np.sqrt(-2*np.log(np.abs(pop_vec)))/pi*90 #Uncertainty (defined here as circular SDs of likelihoods/posteriors)
     elif p['stim_type'] == 'categorical':
         _, est = liks.max(1)
         est = classes[est] #Convert back to original class labels
-        tmp = -liks*liks.log() 
+        tmp = -liks*np.log(liks)
         tmp[liks==0] = 0
         unc = tmp.sum(1) #Uncertainty (defind as the entropy of the distribution)
 
@@ -452,7 +450,7 @@ def TAFKAP_decode(samples=None, p={}):
 def fun_DKL(P,Q):
     # Computes JS-divergence between corresponding rows in P and Q
     z = P==0
-    out = P*(P.log()-Q.log())
+    out = P*(np.log(P)-np.log(Q))
     out[z]=0
     return out.sum(1)
 
@@ -463,7 +461,7 @@ def fun_DJS(P,Q):
     return out
 
 def cholesky_inverse(X):
-    c = np.linalg.inv(np.linalg.cholesky(X))
+    c = np.linalg.inv(X)
     inverse = np.dot(c.T,c)
     return inverse
     
@@ -536,7 +534,7 @@ def makeSNCData(p={}):
     simpar['stimval'] = stimval
     simpar['tau'] = tau_sim
     simpar['rho'] = rho_sim    
-    simpar['prec_mat'] = cholesky_inverse(cov_sim)
+    simpar['prec_mat'] = np.linalg.inv(cov_sim)
     simpar['run_idx'] = run_idx
 
     return rsp, simpar
@@ -573,7 +571,7 @@ def chol_invld(X, get_ld=False):
         A = np.linalg.cholesky(X)
         Xi = cholesky_inverse(A)
         if get_ld: 
-            ld = 2*np.diag(A).log().sum()
+            ld = 2*np.log(np.diag(A)).sum()
             return Xi, ld
         else:
             return Xi
@@ -598,7 +596,7 @@ def ind2sub(sz, idx):
 def logdet(A, try_chol=True):
     if try_chol:    
         try:
-            v = 2*np.diag(np.linalg.cholesky(A)).log().sum()
+            v = 2*np.log(np.diag(np.linalg.cholesky(A))).sum()
             return v    
         except:
             v = 0 #Just to satisfy PyLance; we will fall through out of the try block anyway and compute v for real
@@ -623,7 +621,7 @@ def invSNC(W, tau, sig, rho, getld=True):
     
     if sig==0 and rho==0:
         omi = np.diag(tau**-2)
-        ld = 2*tau.log().sum()
+        ld = 2*np.log(tau).sum()
     else:
         """         
         % Inverses of large matrices are cumbersome to compute. Our voxel
@@ -662,10 +660,15 @@ def invSNC(W, tau, sig, rho, getld=True):
             % this is based on the Matrix Determinant Lemma.
             % (https://en.wikipedia.org/wiki/Matrix_determinant_lemma)
             """
-            ld = logdet(np.eye(W.shape[1]) + sig**2*WtDiW) + log(1+rho*nvox*alpha) + nvox*log(1-rho) + 2*tau.log().sum()
+            ld = logdet(np.eye(W.shape[1]) + sig**2*WtDiW) + log(1+rho*nvox*alpha) + nvox*log(1-rho) + 2*np.log(tau).sum()
             return omi, ld
         else:
             return omi
+
+def softmax(X, axis=1):
+    X = np.exp(X)
+    X /= X.sum(axis, keepdims=True)
+    return X    
 
 def MatProdTrace(A,B):
     return (A.flatten()*B.T.flatten()).sum()
@@ -682,3 +685,4 @@ def setdefaults(defaults, x):
 
 if __name__ == "__main__":
     TAFKAP_decode()
+    # TAFKAP_decode(None, {'dec_type': 'PRINCE'})
