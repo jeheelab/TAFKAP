@@ -249,6 +249,7 @@ def TAFKAP_decode(samples=None, p={}):
     'precision': 'double'
     }
     
+    # set default parameters
     p = setdefaults(defaults, p)   
     
     if samples is None:
@@ -256,8 +257,9 @@ def TAFKAP_decode(samples=None, p={}):
         Ntraintrials = 200
         Ntesttrials = 20
         Ntrials = Ntraintrials+Ntesttrials
-        nclasses = 4 #Only relevant when simulating categorical stimuli
-        
+        nclasses = 4 # Only relevant when simulating categorical stimuli
+
+        # simulating data
         samples, sp = makeSNCData({
             'nvox': 500, 
             'ntrials': Ntrials, 
@@ -269,17 +271,21 @@ def TAFKAP_decode(samples=None, p={}):
             'shuffle_oris': 1,
             'sim_stim_type': p['stim_type'],
             'nclasses': nclasses        
-        })    
+        })
+
+        # set parameters with simulation parameters
+        p["Ntraintrials"] = Ntraintrials
+        p['stimval'] = sp['stimval']
+        p['runNs'] = sp['run_idx']
+
         
     Ntrials = samples.shape[0]
-    p['train_trials'] = np.arange(0,Ntrials) < Ntraintrials
+    p['train_trials'] = np.arange(0,Ntrials) < p["Ntraintrials"]
     p['test_trials'] = np.logical_not(p['train_trials'])
 
-    p['stimval'] = sp['stimval']
-    if p['stim_type']=='circular': p['stimval'] /= (pi/90)
-    p['runNs'] = sp['run_idx']    
+    if p['stim_type'] == 'circular': p['stimval'] /= (pi/90)
 
-    assert 'stimval' in p and 'train_trials' in p and 'test_trials' in p and 'runNs' in p, 'Must specify stimval, train_trials, test_trials and runNs'
+    assert 'stimval' in p and 'runNs' in p, 'Must specify stimval and runNs'
 
     np.random.seed(p['randseed'])
     random.seed(p['randseed'])
