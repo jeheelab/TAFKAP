@@ -278,12 +278,17 @@ def TAFKAP_decode(samples=None, p={}):
         p['stimval'] = sp['stimval']
         p['runNs'] = sp['run_idx']
 
-        
+    # get number of trials
     Ntrials = samples.shape[0]
+
+    # create test and train data indices
+    assert "Ntraintrials" in p, "Must specify Ntraintrials in parameters"
     p['train_trials'] = np.arange(0,Ntrials) < p["Ntraintrials"]
     p['test_trials'] = np.logical_not(p['train_trials'])
 
-    if p['stim_type'] == 'circular': p['stimval'] /= (pi/90)
+    # transform circular stimulus values to radians
+    if p['stim_type'] == 'circular':
+        p['stimval'] /= (pi/90)
 
     assert 'stimval' in p and 'runNs' in p, 'Must specify stimval and runNs'
 
